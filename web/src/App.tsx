@@ -7,7 +7,8 @@ import {
   RotateCcw,
   Send,
   SlidersHorizontal,
-  Trash2
+  Trash2,
+  X
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
@@ -39,6 +40,18 @@ function formatTime(value?: string | null): string {
   }).format(new Date(value));
 }
 
+function formatDateTime(value?: string | null): string {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "short",
+    timeStyle: "medium"
+  }).format(new Date(value));
+}
+
+function formatSeconds(value?: number | null): string {
+  return typeof value === "number" ? `${value.toFixed(2)}s` : "-";
+}
+
 function phaseClass(phase: string): string {
   if (phase === "succeeded") return "good";
   if (phase === "failed" || phase === "cancelled") return "bad";
@@ -50,6 +63,7 @@ function ControlsPanel() {
   const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
   const [duration, setDuration] = useState(4);
   const [cfg, setCfg] = useState(5);
+  const [steps, setSteps] = useState(50);
   const [variationCount, setVariationCount] = useState(4);
   const [seeds, setSeeds] = useState("");
   const submitting = useStudioStore((state) => state.submitting);
@@ -61,6 +75,7 @@ function ControlsPanel() {
       prompt,
       durationSeconds: duration,
       cfgScale: cfg,
+      steps,
       variationCount,
       seeds: parseSeeds(seeds)
     });
@@ -100,17 +115,28 @@ function ControlsPanel() {
               onChange={(event) => setCfg(Number(event.target.value))}
             />
           </label>
+          <label>
+            <span>Steps</span>
+            <input
+              type="number"
+              min={1}
+              max={200}
+              step={1}
+              value={steps}
+              onChange={(event) => setSteps(Number(event.target.value))}
+            />
+          </label>
+          <label>
+            <span>Variations</span>
+            <input
+              type="number"
+              min={1}
+              max={16}
+              value={variationCount}
+              onChange={(event) => setVariationCount(Number(event.target.value))}
+            />
+          </label>
         </div>
-        <label>
-          <span>Variations</span>
-          <input
-            type="number"
-            min={1}
-            max={16}
-            value={variationCount}
-            onChange={(event) => setVariationCount(Number(event.target.value))}
-          />
-        </label>
         <label>
           <span>Seeds</span>
           <div className="seed-row">
@@ -130,7 +156,7 @@ function ControlsPanel() {
 }
 
 function ViewerWorkspace() {
-  const frames = useStudioStore((state) => state.frames);
+  const comparisonClips = useStudioStore((state) => state.comparisonClips);
   const currentFrame = useStudioStore((state) => state.currentFrame);
   const isPlaying = useStudioStore((state) => state.isPlaying);
   const speed = useStudioStore((state) => state.speed);
@@ -138,39 +164,48 @@ function ViewerWorkspace() {
   const statusLine = useStudioStore((state) => state.statusLine);
   const loading = useStudioStore((state) => state.loading);
   const viewerReady = useStudioStore((state) => state.viewerReady);
+  const selectedJob = useStudioStore((state) => state.selectedJob);
+  const selectedVariationId = useStudioStore((state) => state.selectedVariationId);
   const setCurrentFrame = useStudioStore((state) => state.setCurrentFrame);
   const setPlaying = useStudioStore((state) => state.setPlaying);
   const setSpeed = useStudioStore((state) => state.setSpeed);
   const resetCamera = useStudioStore((state) => state.resetCamera);
   const setViewerReady = useStudioStore((state) => state.setViewerReady);
+  const openVariationDetails = useStudioStore((state) => state.openVariationDetails);
 
-  const totalFrames = frames?.length ?? 0;
-  const progress = totalFrames > 1 ? Math.round((currentFrame / (totalFrames - 1)) * 1000) / 10 : 0;
+  const totalFrames = useMemo(() => Math.max(0, ...comparisonClips.map((clip) => clip.frames.length)), [comparisonClips]);
+  const hasClips = comparisonClips.length > 0;
+  const expectedCount = selectedJob?.request.variationCount ?? comparisonClips.length;
+  const loadedCount = comparisonClips.length;
+  const displayFrame = Math.min(currentFrame, Math.max(totalFrames - 1, 0));
+  const progress = totalFrames > 1 ? Math.round((displayFrame / (totalFrames - 1)) * 1000) / 10 : 0;
 
   return (
     <main className="workspace">
       <div className="viewer-shell">
         <MotionViewer
-          frames={frames}
-          currentFrame={Math.min(currentFrame, Math.max(totalFrames - 1, 0))}
+          clips={comparisonClips}
+          selectedVariationId={selectedVariationId}
+          currentFrame={displayFrame}
           isPlaying={isPlaying}
           speed={speed}
           resetToken={resetToken}
           onFrameChange={setCurrentFrame}
           onReadyChange={setViewerReady}
+          onClipClick={openVariationDetails}
         />
-        {!frames && <div className="empty-viewer">No motion selected</div>}
-        {frames && (!viewerReady || loading) && <div className="loading-viewer">Loading model</div>}
+        {!hasClips && <div className="empty-viewer">{loading ? "Waiting for motion" : "No motion selected"}</div>}
+        {hasClips && !viewerReady && <div className="loading-viewer">Loading model</div>}
         <div className="status-strip">
           <span>{statusLine}</span>
-          <span>{totalFrames ? `${currentFrame + 1}/${totalFrames}` : "0/0"}</span>
+          <span>{hasClips ? `${loadedCount}/${expectedCount} loaded · ${displayFrame + 1}/${totalFrames}` : "0/0"}</span>
         </div>
       </div>
       <div className="playback-bar">
-        <button className="icon-button" onClick={() => setPlaying(!isPlaying)} disabled={!frames}>
+        <button className="icon-button" onClick={() => setPlaying(!isPlaying)} disabled={!hasClips}>
           {isPlaying ? <Pause size={18} /> : <Play size={18} />}
         </button>
-        <button className="icon-button" onClick={() => setPlaying(false)} disabled={!frames}>
+        <button className="icon-button" onClick={() => setPlaying(false)} disabled={!hasClips}>
           <CircleStop size={18} />
         </button>
         <button className="icon-button" onClick={resetCamera}>
@@ -181,8 +216,8 @@ function ViewerWorkspace() {
           type="range"
           min={0}
           max={Math.max(totalFrames - 1, 0)}
-          value={Math.min(currentFrame, Math.max(totalFrames - 1, 0))}
-          disabled={!frames}
+          value={displayFrame}
+          disabled={!hasClips}
           onChange={(event) => setCurrentFrame(Number(event.target.value))}
         />
         <span className="frame-percent">{progress.toFixed(1)}%</span>
@@ -207,7 +242,7 @@ function HistoryPanel() {
   const selectedVariationId = useStudioStore((state) => state.selectedVariationId);
   const fetchJobs = useStudioStore((state) => state.fetchJobs);
   const selectJob = useStudioStore((state) => state.selectJob);
-  const selectVariation = useStudioStore((state) => state.selectVariation);
+  const openVariationDetails = useStudioStore((state) => state.openVariationDetails);
   const cancelSelectedJob = useStudioStore((state) => state.cancelSelectedJob);
   const error = useStudioStore((state) => state.error);
 
@@ -254,6 +289,8 @@ function HistoryPanel() {
               <b>{selectedJob.request.durationSeconds}s</b>
               <span>CFG</span>
               <b>{selectedJob.request.cfgScale}</b>
+              <span>Steps</span>
+              <b>{selectedJob.request.steps ?? 50}</b>
               <span>Queue</span>
               <b>{selectedJob.queuePosition ?? "-"}</b>
             </div>
@@ -262,7 +299,7 @@ function HistoryPanel() {
                 <button
                   key={variation.id}
                   className={`variation-row ${selectedVariationId === variation.id ? "selected" : ""}`}
-                  onClick={() => selectVariation(selectedJob.jobId, variation.id)}
+                  onClick={() => openVariationDetails(variation.id)}
                 >
                   <span>V{variation.index + 1}</span>
                   <b>{variation.seed}</b>
@@ -277,6 +314,63 @@ function HistoryPanel() {
         )}
       </div>
     </aside>
+  );
+}
+
+function DetailsDialog() {
+  const selectedJob = useStudioStore((state) => state.selectedJob);
+  const detailVariationId = useStudioStore((state) => state.detailVariationId);
+  const closeVariationDetails = useStudioStore((state) => state.closeVariationDetails);
+
+  const variation = selectedJob?.variations.find((item) => item.id === detailVariationId);
+  if (!selectedJob || !variation) return null;
+
+  return (
+    <div className="modal-backdrop" onClick={closeVariationDetails}>
+      <section className="details-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <span>Variation details</span>
+            <b>V{variation.index + 1}</b>
+          </div>
+          <button className="icon-button compact" onClick={closeVariationDetails}>
+            <X size={15} />
+          </button>
+        </div>
+        <div className="modal-section">
+          <span className="section-label">Prompt</span>
+          <p className="prompt-full">{selectedJob.request.prompt}</p>
+        </div>
+        <div className="metadata-grid modal-grid">
+          <span>Job</span>
+          <b>{selectedJob.jobId}</b>
+          <span>Status</span>
+          <b>{selectedJob.status}</b>
+          <span>Seed</span>
+          <b>{variation.seed}</b>
+          <span>Frames</span>
+          <b>{variation.frameCount ?? "-"}</b>
+          <span>Generation</span>
+          <b>{formatSeconds(variation.seconds)}</b>
+          <span>Duration</span>
+          <b>{selectedJob.request.durationSeconds}s</b>
+          <span>CFG</span>
+          <b>{selectedJob.request.cfgScale}</b>
+          <span>Steps</span>
+          <b>{selectedJob.request.steps ?? 50}</b>
+          <span>Variations</span>
+          <b>{selectedJob.request.variationCount}</b>
+          <span>Created</span>
+          <b>{formatDateTime(selectedJob.createdAt)}</b>
+          <span>Started</span>
+          <b>{formatDateTime(selectedJob.startedAt)}</b>
+          <span>Completed</span>
+          <b>{formatDateTime(selectedJob.completedAt)}</b>
+          <span>Base file</span>
+          <b>{variation.baseFilename ?? "-"}</b>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -319,6 +413,7 @@ export default function App() {
       <ControlsPanel />
       <ViewerWorkspace />
       <HistoryPanel />
+      <DetailsDialog />
     </div>
   );
 }

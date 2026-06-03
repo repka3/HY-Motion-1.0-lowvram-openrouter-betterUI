@@ -1,26 +1,38 @@
-import { Grid, OrbitControls } from "@react-three/drei";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Grid, Html, OrbitControls } from "@react-three/drei";
+import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
-import type { MotionActorFrame, MotionFrames } from "../types";
+import type { ComparisonClip, MotionActorFrame } from "../types";
 import { disposeWoodenModel, loadWoodenModel, type WoodenModel } from "./woodenModel";
 
 interface MotionViewerProps {
-  frames: MotionFrames | null;
+  clips: ComparisonClip[];
+  selectedVariationId: string | null;
   currentFrame: number;
   isPlaying: boolean;
   speed: number;
   resetToken: number;
   onFrameChange: (frame: number) => void;
   onReadyChange?: (ready: boolean) => void;
+  onClipClick?: (variationId: string) => void;
 }
 
-function computeOffsets(actorCount: number): number[] {
-  const spacing = 2;
-  const startX = -((actorCount - 1) * spacing) / 2;
-  return Array.from({ length: actorCount }, (_, index) => startX + index * spacing);
+function computeOffsets(count: number, spacing: number): number[] {
+  const startX = -((count - 1) * spacing) / 2;
+  return Array.from({ length: count }, (_, index) => startX + index * spacing);
+}
+
+function computeClipOffsets(clipCount: number): number[] {
+  const spacing = clipCount > 8 ? 1.35 : clipCount > 4 ? 1.7 : 2.2;
+  return computeOffsets(clipCount, spacing);
+}
+
+function timelineFrameForClip(clip: ComparisonClip, currentFrame: number, totalFrames: number): number {
+  if (clip.frames.length < 2 || totalFrames < 2) return 0;
+  const normalized = currentFrame / (totalFrames - 1);
+  return Math.min(clip.frames.length - 1, Math.round(normalized * (clip.frames.length - 1)));
 }
 
 function applyAxisAngle(bone: THREE.Bone, values: number[]): void {
@@ -35,15 +47,21 @@ function applyAxisAngle(bone: THREE.Bone, values: number[]): void {
 }
 
 function WoodenActor({
+  actorKey,
   actor,
-  offset,
+  xOffset,
   clipVersion,
-  onReady
+  selected,
+  onReady,
+  onClick
 }: {
+  actorKey: string;
   actor: MotionActorFrame;
-  offset: number;
+  xOffset: number;
   clipVersion: number;
-  onReady: (actorId: number) => void;
+  selected: boolean;
+  onReady: (actorKey: string) => void;
+  onClick: () => void;
 }) {
   const [model, setModel] = useState<WoodenModel | null>(null);
 
@@ -67,14 +85,15 @@ function WoodenActor({
 
   useEffect(() => {
     if (model) {
-      onReady(actor.id);
+      onReady(actorKey);
     }
-  }, [actor.id, clipVersion, model, onReady]);
+  }, [actorKey, clipVersion, model, onReady]);
 
   useEffect(() => {
     if (!model) return;
     const mesh = model.mesh;
-    mesh.position.set((actor.Th[0]?.[0] ?? 0) - offset, actor.Th[0]?.[1] ?? 0, actor.Th[0]?.[2] ?? 0);
+    mesh.position.set((actor.Th[0]?.[0] ?? 0) + xOffset, actor.Th[0]?.[1] ?? 0, actor.Th[0]?.[2] ?? 0);
+    mesh.scale.setScalar(selected ? 1.035 : 1);
     applyAxisAngle(model.bones[0], actor.Rh[0] ?? [0, 0, 0]);
 
     const poseValues = actor.poses[0] ?? [];
@@ -87,7 +106,7 @@ function WoodenActor({
         model.bones[index].quaternion.identity();
       }
     }
-  }, [actor, model, offset]);
+  }, [actor, model, selected, xOffset]);
 
   useEffect(() => {
     return () => {
@@ -96,7 +115,22 @@ function WoodenActor({
   }, [model]);
 
   if (!model) return null;
-  return <primitive object={model.mesh} />;
+  return (
+    <primitive
+      object={model.mesh}
+      onClick={(event: ThreeEvent<MouseEvent>) => {
+        event.stopPropagation();
+        onClick();
+      }}
+      onPointerOver={(event: ThreeEvent<PointerEvent>) => {
+        event.stopPropagation();
+        document.body.style.cursor = "pointer";
+      }}
+      onPointerOut={() => {
+        document.body.style.cursor = "";
+      }}
+    />
+  );
 }
 
 function PlaybackTicker({
@@ -133,18 +167,19 @@ function PlaybackTicker({
   return null;
 }
 
-function CameraRig({ resetToken }: { resetToken: number }) {
+function CameraRig({ resetToken, clipCount }: { resetToken: number; clipCount: number }) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const { camera } = useThree();
 
   useEffect(() => {
-    camera.position.set(3.2, 2.4, 4.2);
+    const distance = Math.min(28, Math.max(5.2, clipCount * 1.6));
+    camera.position.set(0, 2.4, distance);
     camera.lookAt(0, 1, 0);
     if (controlsRef.current) {
       controlsRef.current.target.set(0, 1, 0);
       controlsRef.current.update();
     }
-  }, [camera, resetToken]);
+  }, [camera, clipCount, resetToken]);
 
   return (
     <OrbitControls
@@ -152,35 +187,40 @@ function CameraRig({ resetToken }: { resetToken: number }) {
       enableDamping
       dampingFactor={0.05}
       minDistance={1}
-      maxDistance={15}
+      maxDistance={40}
       makeDefault
     />
   );
 }
 
 function SceneContent({
-  frames,
+  clips,
+  selectedVariationId,
   currentFrame,
   isPlaying,
   speed,
   resetToken,
   onFrameChange,
-  onReadyChange
+  onReadyChange,
+  onClipClick
 }: MotionViewerProps) {
-  const frame = frames?.[currentFrame] ?? null;
-  const expectedActorCount = frames?.[0]?.length ?? 0;
-  const offsets = useMemo(() => computeOffsets(expectedActorCount), [expectedActorCount]);
-  const readyActorIds = useRef<Set<number>>(new Set());
+  const totalFrames = useMemo(() => Math.max(0, ...clips.map((clip) => clip.frames.length)), [clips]);
+  const expectedActorCount = useMemo(
+    () => clips.reduce((total, clip) => total + (clip.frames[0]?.length ?? 0), 0),
+    [clips]
+  );
+  const clipOffsets = useMemo(() => computeClipOffsets(clips.length), [clips.length]);
+  const readyActorIds = useRef<Set<string>>(new Set());
   const [clipVersion, setClipVersion] = useState(0);
 
   useEffect(() => {
     readyActorIds.current = new Set();
     onReadyChange?.(expectedActorCount === 0);
     setClipVersion((version) => version + 1);
-  }, [expectedActorCount, frames, onReadyChange]);
+  }, [clips, expectedActorCount, onReadyChange]);
 
-  const handleActorReady = useCallback((actorId: number) => {
-    readyActorIds.current.add(actorId);
+  const handleActorReady = useCallback((actorKey: string) => {
+    readyActorIds.current.add(actorKey);
     if (expectedActorCount > 0 && readyActorIds.current.size >= expectedActorCount) {
       onReadyChange?.(true);
     }
@@ -201,7 +241,7 @@ function SceneContent({
       <directionalLight position={[-4, 2.8, -2]} intensity={0.45} color="#d9edff" />
       <directionalLight position={[0, 4, -5]} intensity={0.35} color="#fff0da" />
       <Grid
-        args={[18, 18]}
+        args={[Math.max(18, clips.length * 3), Math.max(18, clips.length * 3)]}
         cellSize={0.5}
         sectionSize={2}
         fadeDistance={18}
@@ -210,23 +250,53 @@ function SceneContent({
         sectionColor="#98948c"
         position={[0, 0, 0]}
       />
-      {frame?.map((actor, index) => (
-        <WoodenActor
-          key={actor.id}
-          actor={actor}
-          offset={offsets[index] ?? 0}
-          clipVersion={clipVersion}
-          onReady={handleActorReady}
-        />
-      ))}
+      {clips.map((clip, clipIndex) => {
+        const clipOffset = clipOffsets[clipIndex] ?? 0;
+        const frameIndex = timelineFrameForClip(clip, currentFrame, totalFrames);
+        const frame = clip.frames[frameIndex] ?? [];
+        const actorOffsets = computeOffsets(frame.length, 0.72);
+        const selected = selectedVariationId === clip.variationId;
+
+        return (
+          <group key={clip.variationId}>
+            {selected && (
+              <mesh position={[clipOffset, 0.018, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+                <ringGeometry args={[0.62, 0.78, 64]} />
+                <meshBasicMaterial color="#6cbf84" transparent opacity={0.88} side={THREE.DoubleSide} />
+              </mesh>
+            )}
+            <Html position={[clipOffset, 2.18, 0]} center distanceFactor={9}>
+              <button className={`viewer-label ${selected ? "selected" : ""}`} onClick={() => onClipClick?.(clip.variationId)}>
+                <span>V{clip.variationIndex + 1}</span>
+                <b>{clip.seed}</b>
+              </button>
+            </Html>
+            {frame.map((actor, actorIndex) => {
+              const actorKey = `${clip.variationId}:${actor.id}:${actorIndex}`;
+              return (
+                <WoodenActor
+                  key={actorKey}
+                  actorKey={actorKey}
+                  actor={actor}
+                  xOffset={clipOffset + (actorOffsets[actorIndex] ?? 0)}
+                  clipVersion={clipVersion}
+                  selected={selected}
+                  onReady={handleActorReady}
+                  onClick={() => onClipClick?.(clip.variationId)}
+                />
+              );
+            })}
+          </group>
+        );
+      })}
       <PlaybackTicker
-        totalFrames={frames?.length ?? 0}
+        totalFrames={totalFrames}
         currentFrame={currentFrame}
         isPlaying={isPlaying}
         speed={speed}
         onFrameChange={onFrameChange}
       />
-      <CameraRig resetToken={resetToken} />
+      <CameraRig resetToken={resetToken} clipCount={clips.length} />
     </>
   );
 }
@@ -235,7 +305,7 @@ export default function MotionViewer(props: MotionViewerProps) {
   return (
     <Canvas
       shadows
-      camera={{ fov: 45, near: 0.1, far: 50, position: [3.2, 2.4, 4.2] }}
+      camera={{ fov: 50, near: 0.1, far: 80, position: [0, 2.4, 5.2] }}
       gl={{ antialias: true, logarithmicDepthBuffer: true }}
       onCreated={({ gl }) => {
         gl.toneMapping = THREE.ACESFilmicToneMapping;

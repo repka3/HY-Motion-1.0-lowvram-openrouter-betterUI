@@ -91,6 +91,7 @@ class LowVramMotionGenerator:
         seeds = self._resolve_seeds(request)
         duration = float(request.get("durationSeconds", 4.0))
         cfg_scale = float(request.get("cfgScale", 5.0))
+        steps = int(request.get("steps", 50))
 
         self._unload_motion_pipeline()
         config = self._load_config()
@@ -101,6 +102,7 @@ class LowVramMotionGenerator:
         self._check_cancel(should_cancel)
         emit("motion_loading", {"message": "Loading HY-Motion checkpoint"})
         pipeline = self._load_motion_pipeline(config, device)
+        pipeline.validation_steps = steps
 
         artifacts: List[VariationArtifact] = []
         run_id = now_id()

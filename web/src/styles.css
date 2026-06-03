@@ -241,6 +241,36 @@ input:focus {
   backdrop-filter: blur(10px);
 }
 
+.viewer-label {
+  border: 1px solid rgba(238, 234, 225, 0.2);
+  border-radius: 6px;
+  min-width: 74px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  background: rgba(25, 24, 22, 0.74);
+  color: #eeeae1;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.viewer-label b {
+  max-width: 52px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #bcb5aa;
+  font-variant-numeric: tabular-nums;
+}
+
+.viewer-label.selected {
+  border-color: rgba(108, 191, 132, 0.75);
+  color: #f6fff7;
+}
+
 .playback-bar {
   display: flex;
   align-items: center;
@@ -407,6 +437,83 @@ input:focus {
   color: #ff9c8e;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(12, 12, 10, 0.58);
+  backdrop-filter: blur(6px);
+}
+
+.details-modal {
+  width: min(680px, 100%);
+  max-height: min(780px, calc(100vh - 40px));
+  overflow: auto;
+  border: 1px solid #4a473f;
+  border-radius: 8px;
+  background: #20201d;
+  box-shadow: 0 24px 72px rgba(0, 0, 0, 0.38);
+  padding: 18px;
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.modal-head span {
+  display: block;
+  color: #aaa39a;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.modal-head b {
+  display: block;
+  margin-top: 3px;
+  color: #eeeae1;
+  font-size: 18px;
+}
+
+.modal-section {
+  border-top: 1px solid #312f2a;
+  border-bottom: 1px solid #312f2a;
+  padding: 14px 0;
+  margin-bottom: 14px;
+}
+
+.section-label {
+  display: block;
+  margin-bottom: 8px;
+  color: #aaa39a;
+  font-size: 11px;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.prompt-full {
+  margin: 0;
+  color: #f3efe6;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.modal-grid {
+  grid-template-columns: 132px minmax(0, 1fr);
+}
+
+.modal-grid b {
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
 @media (max-width: 1080px) {
   .app-shell {
     grid-template-columns: 300px minmax(0, 1fr);
@@ -430,6 +537,13 @@ input:focus {
 }
 
 @media (max-width: 760px) {
+  html,
+  body,
+  #root {
+    height: auto;
+    min-height: 100%;
+  }
+
   .app-shell {
     display: flex;
     flex-direction: column;
@@ -452,5 +566,16 @@ input:focus {
   .timeline {
     order: 2;
     flex-basis: 100%;
+  }
+
+  .speed-slider {
+    flex: 1 1 120px;
+    width: auto;
+  }
+
+  .status-strip {
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
   }
 }

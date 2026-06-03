@@ -1,15 +1,18 @@
 import { create } from "zustand";
 
 import { cancelJob, createJob, createJobSocket, getJob, getMotion, listJobs } from "./api";
-import type { JobDetail, JobEvent, JobRequest, JobSummary, MotionFrames } from "./types";
+import type { ComparisonClip, JobDetail, JobEvent, JobRequest, JobSummary, MotionFrames, VariationSummary } from "./types";
 
 let activeSocket: WebSocket | null = null;
+let activeSelectionId: string | null = null;
+const loadingMotionKeys = new Set<string>();
 
 interface StudioState {
   jobs: JobSummary[];
   selectedJob: JobDetail | null;
   selectedVariationId: string | null;
-  frames: MotionFrames | null;
+  detailVariationId: string | null;
+  comparisonClips: ComparisonClip[];
   currentFrame: number;
   isPlaying: boolean;
   speed: number;
@@ -23,7 +26,9 @@ interface StudioState {
   submitJob: (request: JobRequest) => Promise<void>;
   refreshSelectedJob: () => Promise<void>;
   selectJob: (jobId: string) => Promise<void>;
-  selectVariation: (jobId: string, variationId: string) => Promise<void>;
+  loadComparisonVariation: (jobId: string, variation: VariationSummary) => Promise<void>;
+  openVariationDetails: (variationId: string) => void;
+  closeVariationDetails: () => void;
   cancelSelectedJob: () => Promise<void>;
   setCurrentFrame: (frame: number) => void;
   setPlaying: (playing: boolean) => void;
@@ -67,11 +72,28 @@ async function loadJobIntoState(jobId: string): Promise<JobDetail> {
   return getJob(jobId);
 }
 
+function motionKey(jobId: string, variationId: string): string {
+  return `${jobId}:${variationId}`;
+}
+
+function clipFromVariation(variation: VariationSummary, frames: MotionFrames): ComparisonClip {
+  return {
+    variationId: variation.id,
+    variationIndex: variation.index,
+    seed: variation.seed,
+    frames,
+    frameCount: frames.length,
+    seconds: variation.seconds,
+    baseFilename: variation.baseFilename
+  };
+}
+
 export const useStudioStore = create<StudioState>((set, get) => ({
   jobs: [],
   selectedJob: null,
   selectedVariationId: null,
-  frames: null,
+  detailVariationId: null,
+  comparisonClips: [],
   currentFrame: 0,
   isPlaying: false,
   speed: 1,
@@ -105,47 +127,91 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     if (!selectedJob) return;
     const fresh = await loadJobIntoState(selectedJob.jobId);
     set({ selectedJob: fresh, statusLine: phaseLabel(fresh) });
+    await Promise.all(fresh.variations.map((variation) => get().loadComparisonVariation(fresh.jobId, variation)));
   },
 
   selectJob: async (jobId) => {
     activeSocket?.close();
-    set({ loading: true, error: null, selectedVariationId: null, frames: null, currentFrame: 0, viewerReady: false });
+    activeSelectionId = jobId;
+    loadingMotionKeys.clear();
+    set({
+      loading: true,
+      error: null,
+      selectedVariationId: null,
+      detailVariationId: null,
+      comparisonClips: [],
+      currentFrame: 0,
+      isPlaying: false,
+      viewerReady: false
+    });
     try {
       const job = await loadJobIntoState(jobId);
       set({ selectedJob: job, statusLine: phaseLabel(job) });
       activeSocket = createJobSocket(jobId);
       activeSocket.onmessage = async (message) => {
         const event = JSON.parse(message.data) as JobEvent;
+        if (activeSelectionId !== jobId || get().selectedJob?.jobId !== jobId) return;
         set({ statusLine: event.message ?? phaseLabel(event) });
         const fresh = await loadJobIntoState(jobId);
+        if (activeSelectionId !== jobId || get().selectedJob?.jobId !== jobId) return;
         set({ selectedJob: fresh });
         await get().fetchJobs();
-        if (event.type === "variation_done" && event.variation?.id && !get().selectedVariationId) {
-          await get().selectVariation(jobId, event.variation.id);
+        if (event.type === "variation_done" && event.variation?.id) {
+          const variation = fresh.variations.find((item) => item.id === event.variation?.id) ?? event.variation;
+          await get().loadComparisonVariation(jobId, variation);
         }
       };
       activeSocket.onerror = () => set({ error: "Job event stream disconnected" });
-      if (job.variations[0]) {
-        await get().selectVariation(jobId, job.variations[0].id);
-      }
+      await Promise.all(job.variations.map((variation) => get().loadComparisonVariation(jobId, variation)));
     } catch (error) {
       set({ error: error instanceof Error ? error.message : String(error) });
     } finally {
-      set({ loading: false });
+      if (activeSelectionId === jobId) {
+        set({ loading: false });
+      }
     }
   },
 
-  selectVariation: async (jobId, variationId) => {
-    set({ loading: true, error: null, selectedVariationId: variationId, currentFrame: 0, isPlaying: false, viewerReady: false });
+  loadComparisonVariation: async (jobId, variation) => {
+    const key = motionKey(jobId, variation.id);
+    if (loadingMotionKeys.has(key) || get().comparisonClips.some((clip) => clip.variationId === variation.id)) return;
+    loadingMotionKeys.add(key);
     try {
-      const frames = await getMotion(jobId, variationId);
-      set({ frames, statusLine: `${frames.length} frames loaded` });
+      const frames = await getMotion(jobId, variation.id);
+      if (get().selectedJob?.jobId !== jobId) return;
+      const clip = clipFromVariation(variation, frames);
+      set((state) => {
+        const oldTotalFrames = Math.max(0, ...state.comparisonClips.map((item) => item.frames.length));
+        const comparisonClips = [
+          ...state.comparisonClips.filter((item) => item.variationId !== clip.variationId),
+          clip
+        ].sort((left, right) => left.variationIndex - right.variationIndex);
+        const newTotalFrames = Math.max(0, ...comparisonClips.map((item) => item.frames.length));
+        const currentFrame =
+          oldTotalFrames > 1 && newTotalFrames > 1
+            ? Math.min(
+                newTotalFrames - 1,
+                Math.round((state.currentFrame / (oldTotalFrames - 1)) * (newTotalFrames - 1))
+              )
+            : state.currentFrame;
+        return {
+          comparisonClips,
+          currentFrame,
+          selectedVariationId: state.selectedVariationId ?? variation.id,
+          viewerReady: false
+        };
+      });
     } catch (error) {
-      set({ error: error instanceof Error ? error.message : String(error), frames: null });
+      if (get().selectedJob?.jobId === jobId) {
+        set({ error: error instanceof Error ? error.message : String(error) });
+      }
     } finally {
-      set({ loading: false });
+      loadingMotionKeys.delete(key);
     }
   },
+
+  openVariationDetails: (variationId) => set({ selectedVariationId: variationId, detailVariationId: variationId }),
+  closeVariationDetails: () => set({ detailVariationId: null }),
 
   cancelSelectedJob: async () => {
     const selectedJob = get().selectedJob;
@@ -163,13 +229,23 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
   loadFixture: async (path) => {
     activeSocket?.close();
-    set({ loading: true, error: null, frames: null, currentFrame: 0, selectedVariationId: "fixture" });
+    activeSelectionId = "fixture";
+    loadingMotionKeys.clear();
+    set({
+      loading: true,
+      error: null,
+      comparisonClips: [],
+      detailVariationId: null,
+      currentFrame: 0,
+      selectedVariationId: "fixture"
+    });
     try {
       const response = await fetch(path);
       if (!response.ok) throw new Error(response.statusText);
       const frames = (await response.json()) as MotionFrames;
+      const variation: VariationSummary = { id: "fixture", index: 0, seed: 0, status: "succeeded", frameCount: frames.length };
       set({
-        frames,
+        comparisonClips: [clipFromVariation(variation, frames)],
         selectedJob: {
           jobId: "fixture",
           status: "succeeded",
@@ -178,6 +254,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
             prompt: "fixture motion",
             durationSeconds: 4,
             cfgScale: 5,
+            steps: 50,
             variationCount: 1
           },
           createdAt: new Date().toISOString(),
@@ -188,7 +265,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           cancelRequested: false,
           error: null,
           timing: {},
-          variations: [{ id: "fixture", index: 0, seed: 0, status: "succeeded", frameCount: frames.length }],
+          variations: [variation],
           events: []
         },
         statusLine: `${frames.length} fixture frames loaded`

@@ -16,6 +16,7 @@ export interface JobRequest {
   prompt: string;
   durationSeconds: number;
   cfgScale: number;
+  steps?: number;
   variationCount: number;
   seeds?: number[];
 }
@@ -73,3 +74,13 @@ export interface MotionActorFrame {
 
 export type MotionFrame = MotionActorFrame[];
 export type MotionFrames = MotionFrame[];
+
+export interface ComparisonClip {
+  variationId: string;
+  variationIndex: number;
+  seed: number;
+  frames: MotionFrames;
+  frameCount: number;
+  seconds?: number;
+  baseFilename?: string;
+}

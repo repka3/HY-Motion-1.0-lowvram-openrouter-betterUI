@@ -15,7 +15,11 @@ from hymotion.api.service import JobService
 
 
 class SuccessGenerator:
+    def __init__(self) -> None:
+        self.last_request: Dict[str, Any] | None = None
+
     def run_job(self, request: Dict[str, Any], job_dir: Path, emit, should_cancel) -> List[SimpleNamespace]:
+        self.last_request = request
         count = int(request["variationCount"])
         artifacts = []
         for index in range(count):
@@ -62,7 +66,8 @@ async def wait_for_status(service: JobService, job_id: str, status: str) -> Dict
 class JobServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_successful_job_records_variations(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            service = JobService(output_root=tmp, generator=SuccessGenerator())
+            generator = SuccessGenerator()
+            service = JobService(output_root=tmp, generator=generator)
             await service.start()
             try:
                 created = await service.submit(
@@ -70,12 +75,15 @@ class JobServiceTests(unittest.IsolatedAsyncioTestCase):
                         prompt="walk forward",
                         durationSeconds=4,
                         cfgScale=5,
+                        steps=32,
                         variationCount=2,
                         seeds=[11, 22],
                     )
                 )
                 job = await wait_for_status(service, created["jobId"], "succeeded")
                 self.assertEqual(job["phase"], "succeeded")
+                self.assertEqual(job["request"]["steps"], 32)
+                self.assertEqual(generator.last_request["steps"] if generator.last_request else None, 32)
                 self.assertEqual([item["seed"] for item in job["variations"]], [11, 22])
                 self.assertGreaterEqual(len(job["events"]), 2)
             finally:
@@ -117,6 +125,10 @@ class SeedResolutionTests(unittest.TestCase):
     def test_job_request_keeps_variation_count_with_partial_seeds(self) -> None:
         request = JobCreateRequest(prompt="walk", variationCount=4, seeds=[7])
         self.assertEqual(request.variationCount, 4)
+
+    def test_job_request_defaults_steps(self) -> None:
+        request = JobCreateRequest(prompt="walk")
+        self.assertEqual(request.steps, 50)
 
 
 if __name__ == "__main__":
