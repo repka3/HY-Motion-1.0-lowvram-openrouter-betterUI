@@ -20,3 +20,4 @@ debug
 tencent
 output
 venv/
+assets/wooden_models/*.fbm/
