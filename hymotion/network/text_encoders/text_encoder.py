@@ -23,6 +23,21 @@ else:
     QWEN_PATH = "ckpts/Qwen3-8B"
     CLIP_PATH = "ckpts/clip-vit-large-patch14"
 
+QWEN_PATH = os.environ.get("HY_QWEN_PATH", QWEN_PATH)
+CLIP_PATH = os.environ.get("HY_CLIP_PATH", CLIP_PATH)
+
+
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _module_input_device(module: nn.Module) -> torch.device:
+    if hasattr(module, "get_input_embeddings"):
+        embeddings = module.get_input_embeddings()
+        if embeddings is not None and hasattr(embeddings, "weight"):
+            return embeddings.weight.device
+    return get_module_device(module)
+
 LLM_ENCODER_LAYOUT = {
     "qwen3": {
         "module_path": QWEN_PATH,
@@ -72,6 +87,11 @@ class HYTextModel(nn.Module):
                 "pooling_mode", "pooler_output"
             )
             tokenizer_kwargs = SENTENCE_EMB_LAYOUT[sentence_emb_type].get("tokenizer_kwargs", {})
+            if _env_flag("HY_TEXT_LOCAL_FILES_ONLY"):
+                tokenizer_kwargs = {**tokenizer_kwargs, "local_files_only": True}
+            sentence_model_kwargs = {}
+            if _env_flag("HY_TEXT_LOCAL_FILES_ONLY"):
+                sentence_model_kwargs["local_files_only"] = True
 
             self.sentence_emb_tokenizer = SENTENCE_EMB_LAYOUT[sentence_emb_type]["tokenizer_class"].from_pretrained(
                 SENTENCE_EMB_LAYOUT[sentence_emb_type]["module_path"],
@@ -80,13 +100,14 @@ class HYTextModel(nn.Module):
             )
             self.sentence_emb_text_encoder = SENTENCE_EMB_LAYOUT[sentence_emb_type][
                 "text_encoder_class"
-            ].from_pretrained(SENTENCE_EMB_LAYOUT[sentence_emb_type]["module_path"])
+            ].from_pretrained(SENTENCE_EMB_LAYOUT[sentence_emb_type]["module_path"], **sentence_model_kwargs)
             self.sentence_emb_text_encoder = self.sentence_emb_text_encoder.eval().requires_grad_(False)
             self.vtxt_dim = self.sentence_emb_text_encoder.config.hidden_size
 
         self.llm_type = llm_type
         self.llm_text_encoder = None
         self.llm_tokenizer = None
+        self._llm_uses_device_map = False
         self.ctxt_dim = 0
         self.crop_start = 0
         self.max_length_llm = max_length_llm
@@ -98,10 +119,28 @@ class HYTextModel(nn.Module):
                 LLM_ENCODER_LAYOUT[llm_type]["module_path"],
                 padding_side="right",
             )
+            llm_kwargs = {
+                "low_cpu_mem_usage": True,
+                "torch_dtype": torch.bfloat16,
+            }
+            device_map = os.environ.get("HY_QWEN_DEVICE_MAP", "").strip()
+            if device_map and device_map.lower() not in {"0", "false", "none"}:
+                self._llm_uses_device_map = True
+                llm_kwargs["device_map"] = device_map
+                max_memory = {}
+                if os.environ.get("HY_QWEN_MAX_GPU_MEMORY"):
+                    max_memory[0] = os.environ["HY_QWEN_MAX_GPU_MEMORY"]
+                if os.environ.get("HY_QWEN_MAX_CPU_MEMORY"):
+                    max_memory["cpu"] = os.environ["HY_QWEN_MAX_CPU_MEMORY"]
+                if max_memory:
+                    llm_kwargs["max_memory"] = max_memory
+                if os.environ.get("HY_QWEN_OFFLOAD_FOLDER"):
+                    llm_kwargs["offload_folder"] = os.environ["HY_QWEN_OFFLOAD_FOLDER"]
+            if _env_flag("HY_TEXT_LOCAL_FILES_ONLY"):
+                llm_kwargs["local_files_only"] = True
             self.llm_text_encoder = LLM_ENCODER_LAYOUT[llm_type]["text_encoder_class"].from_pretrained(
                 LLM_ENCODER_LAYOUT[llm_type]["module_path"],
-                low_cpu_mem_usage=True,
-                torch_dtype=torch.bfloat16,
+                **llm_kwargs,
             )
             self.llm_text_encoder = self.llm_text_encoder.eval().requires_grad_(False)
             self.ctxt_dim = self.llm_text_encoder.config.hidden_size
@@ -109,12 +148,19 @@ class HYTextModel(nn.Module):
             self.crop_start = self._compute_crop_start()
             self.max_length_llm = self._orig_max_length_llm + self.crop_start
 
+    def to(self, *args, **kwargs):
+        if not self._llm_uses_device_map:
+            return super().to(*args, **kwargs)
+        if self.sentence_emb_text_encoder is not None:
+            self.sentence_emb_text_encoder.to(*args, **kwargs)
+        return self
+
     @torch.no_grad()
     def encode_llm(self, text: List[str]) -> Tuple[Tensor, Tensor]:
         if self.llm_type is None or self.llm_text_encoder is None or self.llm_tokenizer is None:
             raise ValueError("LLM model not initialized")
 
-        device = get_module_device(self)
+        device = _module_input_device(self.llm_text_encoder)
         llm_text = [
             (
                 self.llm_tokenizer.apply_chat_template(
@@ -159,7 +205,7 @@ class HYTextModel(nn.Module):
         start = self.crop_start
         end = start + self._orig_max_length_llm
         ctxt_raw = ctxt_raw[:, start:end].contiguous()  # [bs, _orig_max_length_llm, hidden]
-        ctxt_length = (llm_batch_encoding["attention_mask"].sum(dim=-1).to(device) - start).clamp(
+        ctxt_length = (llm_batch_encoding["attention_mask"].sum(dim=-1).to(ctxt_raw.device) - start).clamp(
             min=0, max=self._orig_max_length_llm
         )
         return ctxt_raw, ctxt_length
@@ -173,7 +219,7 @@ class HYTextModel(nn.Module):
         ):
             raise ValueError("Sentence embedding model not initialized")
 
-        device = get_module_device(self)
+        device = get_module_device(self.sentence_emb_text_encoder)
         enc = self.sentence_emb_tokenizer(
             text,
             return_length=False,

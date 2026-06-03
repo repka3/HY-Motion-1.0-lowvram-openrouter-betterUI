@@ -1,9 +1,10 @@
 # t2m_runtime.py
+import gc
 import os
 import threading
 import time
 import uuid
-from typing import List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 import yaml
@@ -39,6 +40,10 @@ def _now():
     return time.strftime("%Y%m%d_%H%M%S", time.localtime(t)) + f"{ms:03d}"
 
 
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 class T2MRuntime:
     def __init__(
         self,
@@ -60,6 +65,9 @@ class T2MRuntime:
         self.disable_prompt_engineering = disable_prompt_engineering
         self.skip_model_loading = skip_model_loading
         self.local_ip = _get_local_ip()
+        self.lowvram_text_first = _env_flag("HY_LOWVRAM_TEXT_FIRST")
+        if self.lowvram_text_first:
+            self.skip_text = True
 
         if force_cpu:
             print(">>> [INFO] CPU mode enabled via HY_MOTION_DEVICE=cpu environment variable")
@@ -84,7 +92,10 @@ class T2MRuntime:
         # Skip model loading if checkpoint not found
         if self.skip_model_loading:
             print(">>> [WARNING] Checkpoint not found, will use randomly initialized model weights")
-        self.load()
+        if self.lowvram_text_first:
+            print(">>> [LOWVRAM] Deferring HY-Motion load until after text encoding.")
+        else:
+            self.load()
         self.fbx_available = FBX_AVAILABLE
         if self.fbx_available:
             try:
@@ -104,6 +115,8 @@ class T2MRuntime:
             print(
                 f">>> T2MRuntime initialized (using randomly initialized weights) in IP {self.local_ip}, devices={device_info}"
             )
+        elif self.lowvram_text_first:
+            print(f">>> T2MRuntime initialized in low-VRAM text-first mode, IP {self.local_ip}, devices={device_info}")
         else:
             print(f">>> T2MRuntime loaded in IP {self.local_ip}, devices={device_info}")
 
@@ -259,6 +272,57 @@ class T2MRuntime:
         self.skip_text = False
         print(">>> Text encoder loading completed!")
 
+    def _unload_model_for_text_encoding(self) -> None:
+        if not self._loaded:
+            return
+        print(">>> [LOWVRAM] Unloading HY-Motion before text encoding...")
+        self.pipelines = []
+        self._gpu_load = []
+        self._loaded = False
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+
+    def _encode_text_before_model_load(self, text_list: List[str]) -> Dict[str, torch.Tensor]:
+        print(">>> [LOWVRAM] Loading text encoder for hidden-state encoding...")
+        with open(self.config_path, "r") as f:
+            config = yaml.load(f, Loader=yaml.FullLoader)
+
+        text_encoder = None
+        vtxt_input = None
+        ctxt_input = None
+        ctxt_length = None
+        try:
+            text_encoder = load_object(
+                config["train_pipeline_args"]["text_encoder_module"],
+                config["train_pipeline_args"]["text_encoder_cfg"],
+            )
+            if self.device_ids:
+                text_encoder.to(torch.device(f"cuda:{self.device_ids[0]}"))
+
+            start_time = time.time()
+            with torch.no_grad():
+                vtxt_input, ctxt_input, ctxt_length = text_encoder.encode(text=text_list)
+            print(f">>> [LOWVRAM] Text hidden states encoded in {time.time() - start_time:.2f}s")
+
+            return {
+                "text_vec_raw": vtxt_input.detach().cpu(),
+                "text_ctxt_raw": ctxt_input.detach().cpu(),
+                "text_ctxt_raw_length": ctxt_length.detach().cpu(),
+            }
+        finally:
+            del text_encoder, vtxt_input, ctxt_input, ctxt_length
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.ipc_collect()
+            print(">>> [LOWVRAM] Text encoder released.")
+
+    @staticmethod
+    def _move_hidden_state_dict(hidden_state_dict: Dict[str, torch.Tensor], device: torch.device) -> Dict[str, torch.Tensor]:
+        return {key: value.to(device) for key, value in hidden_state_dict.items()}
+
     def rewrite_text_and_infer_time(self, text: str) -> Tuple[float, str]:
         print("Start rewriting text...")
         duration, rewritten_text = self.prompt_rewriter.rewrite_prompt_and_infer_time(f"{text}")
@@ -277,15 +341,40 @@ class T2MRuntime:
         original_text: Optional[str] = None,
         use_special_game_feat: bool = False,
     ) -> Tuple[Union[str, list[str]], dict]:
-        self.load()
         seeds = [int(s.strip()) for s in seeds_csv.split(",") if s.strip() != ""]
+        if self.lowvram_text_first:
+            if not seeds:
+                seeds = [0]
+            max_seeds = int(os.environ.get("HY_LOWVRAM_MAX_SEEDS", "1"))
+            if max_seeds > 0 and len(seeds) > max_seeds:
+                print(f">>> [LOWVRAM] Clamping seeds from {len(seeds)} to {max_seeds}: {seeds[:max_seeds]}")
+                seeds = seeds[:max_seeds]
+
+        hidden_state_dict = None
+        if self.lowvram_text_first and not self.skip_model_loading:
+            self._unload_model_for_text_encoding()
+            repeat = len(seeds) if seeds else 1
+            hidden_state_dict = self._encode_text_before_model_load([text] * repeat)
+
+        self.load()
         pi = self._acquire_pipeline()
         try:
             pipeline = self.pipelines[pi]
             pipeline.eval()
 
+            if self.lowvram_text_first and hidden_state_dict is not None:
+                device = next(pipeline.parameters()).device
+                hidden_state_dict = self._move_hidden_state_dict(hidden_state_dict, device)
+                model_output = pipeline.generate(
+                    text,
+                    seeds,
+                    duration,
+                    cfg_scale=cfg_scale,
+                    use_special_game_feat=use_special_game_feat,
+                    hidden_state_dict=hidden_state_dict,
+                )
             # When skip_text=True (debug mode), use blank text features
-            if self.skip_text:
+            elif self.skip_text:
                 print(">>> [Debug Mode] Using blank text features (skip_text=True)")
                 device = next(pipeline.parameters()).device
                 batch_size = len(seeds) if seeds else 1

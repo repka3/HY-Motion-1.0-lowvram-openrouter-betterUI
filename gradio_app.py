@@ -14,9 +14,18 @@ from huggingface_hub import snapshot_download
 import gradio as gr
 
 
+def _lowvram_text_first_enabled():
+    return os.environ.get("HY_LOWVRAM_TEXT_FIRST", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def try_to_download_model():
+    override_path = os.environ.get("HY_MODEL_PATH")
+    if override_path:
+        print(f">>> Using HY_MODEL_PATH: {override_path}")
+        return override_path
+
     repo_id = "tencent/HY-Motion-1.0"
-    target_folder = "HY-Motion-1.0-Lite"
+    target_folder = os.environ.get("HY_MODEL_FOLDER", "HY-Motion-1.0-Lite")
     print(f">>> start download ", repo_id, target_folder)
     local_dir = snapshot_download(repo_id=repo_id, allow_patterns=f"{target_folder}/*", local_dir="./ckpts/tencent")
     final_model_path = os.path.join(local_dir, target_folder)
@@ -447,7 +456,8 @@ class T2MGradioUI:
         return HEADER_BASE_MD
 
     def _generate_random_seeds(self):
-        seeds = [random.randint(0, 999) for _ in range(4)]
+        count = 1 if _lowvram_text_first_enabled() else 4
+        seeds = [random.randint(0, 999) for _ in range(count)]
         return ",".join(map(str, seeds))
 
     def _prompt_engineering(
@@ -501,7 +511,9 @@ class T2MGradioUI:
             # Use runtime from global if available (for Zero GPU), otherwise use self.runtime
             runtime = _global_runtime if _global_runtime is not None else self.runtime
             fbx_ok = getattr(runtime, "fbx_available", False)
-            req_format = "fbx" if fbx_ok else "dict"
+            req_format = os.environ.get("HY_OUTPUT_FORMAT", "").strip().lower()
+            if req_format not in {"fbx", "dict"}:
+                req_format = "fbx" if fbx_ok else "dict"
 
             # Use GPU-decorated function for Zero GPU support
             html_content, fbx_files = generate_motion_on_gpu(
@@ -710,8 +722,8 @@ class T2MGradioUI:
                 with gr.Column(scale=3):
                     self.seed_input = gr.Textbox(
                         label="🎯 Random Seed List (comma separated)",
-                        value="0,1,2,3",
-                        placeholder="Enter comma separated seed list (e.g.: 0,1,2,3)",
+                        value="0" if _lowvram_text_first_enabled() else "0,1,2,3",
+                        placeholder="Enter comma separated seed list (e.g.: 0)",
                         info="Random seeds control the diversity of generated motions",
                     )
                 with gr.Column(scale=1, min_width=60, elem_classes=["dice-container"]):
@@ -864,6 +876,7 @@ def create_demo(final_model_path):
             def __init__(self):
                 self.fbx_available = False
                 self.prompt_engineering_host = args.prompt_engineering_host
+                self.prompt_engineering_model_path = args.prompt_engineering_model_path
 
             def rewrite_text_and_infer_time(self, text: str):
                 # For prompt rewriting, we don't need GPU
@@ -877,7 +890,10 @@ def create_demo(final_model_path):
         runtime = PlaceholderRuntime()
     else:
         # Local development: load model immediately
-        print(">>> Local environment detected. Loading model at startup.")
+        if os.environ.get("HY_LOWVRAM_TEXT_FIRST", "").strip().lower() in {"1", "true", "yes", "on"}:
+            print(">>> Local environment detected. HY-Motion will load after low-VRAM text encoding.")
+        else:
+            print(">>> Local environment detected. Loading model at startup.")
         skip_model_loading = False
         if not os.path.exists(ckpt):
             print(f">>> [WARNING] Checkpoint file not found: {ckpt}")
@@ -910,4 +926,9 @@ if __name__ == "__main__":
     # Create demo at module level for Hugging Face Spaces
     final_model_path = try_to_download_model()
     demo = create_demo(final_model_path)
-    demo.launch()
+    launch_kwargs = {}
+    if os.environ.get("GRADIO_SERVER_NAME"):
+        launch_kwargs["server_name"] = os.environ["GRADIO_SERVER_NAME"]
+    if os.environ.get("GRADIO_SERVER_PORT"):
+        launch_kwargs["server_port"] = int(os.environ["GRADIO_SERVER_PORT"])
+    demo.launch(**launch_kwargs)
