@@ -53,7 +53,7 @@ For multiple variations of the same prompt, the text encoder output is determini
 Test prompt:
 
 ```text
-a female person kneeling down from a standing position in a feminine fashion
+a female person kneeling down from a standing position
 ```
 
 Test settings:
