@@ -1,5 +1,4 @@
 import {
-  CircleStop,
   Copy,
   Dice5,
   Info,
@@ -207,6 +206,9 @@ function ControlsPanel() {
   const [leftTab, setLeftTab] = useState<LeftPanelTab>("generate");
   const [activeHelp, setActiveHelp] = useState<HelpKey | null>(null);
   const form = useStudioStore((state) => state.generationForm);
+  const selectedJob = useStudioStore((state) => state.selectedJob);
+  const selectedClipId = useStudioStore((state) => state.selectedClipId);
+  const comparisonClips = useStudioStore((state) => state.comparisonClips);
   const openRouterSettings = useStudioStore((state) => state.openRouterSettings);
   const updateGenerationForm = useStudioStore((state) => state.updateGenerationForm);
   const resetGenerationFormField = useStudioStore((state) => state.resetGenerationFormField);
@@ -217,6 +219,13 @@ function ControlsPanel() {
   const submitJob = useStudioStore((state) => state.submitJob);
   const canEnhance =
     Boolean(form.prompt.trim()) && Boolean(openRouterSettings?.hasApiKey) && !promptEnhancing && !submitting;
+  const activeSummary = useMemo(() => {
+    if (selectedJob) return `${selectedJob.status} · ${selectedJob.phase}`;
+    const clip = comparisonClips.find((item) => item.id === selectedClipId);
+    if (clip?.source === "favorite") return "favorite selected";
+    if (clip?.source === "fixture") return "fixture selected";
+    return "Idle";
+  }, [comparisonClips, selectedClipId, selectedJob]);
 
   useEffect(() => {
     void fetchOpenRouterSettings();
@@ -236,6 +245,10 @@ function ControlsPanel() {
 
   return (
     <aside className="panel left-panel">
+      <div className="studio-heading">
+        <h1>HY-Motion Studio</h1>
+        <span>{activeSummary}</span>
+      </div>
       <div className="panel-title">
         <span>{leftTab === "generate" ? "Generate" : "OpenRouter"}</span>
         {leftTab === "generate" ? <SlidersHorizontal size={16} /> : <KeyRound size={16} />}
@@ -405,7 +418,6 @@ function ViewerWorkspace() {
   const setCurrentFrame = useStudioStore((state) => state.setCurrentFrame);
   const setPlaying = useStudioStore((state) => state.setPlaying);
   const setSpeed = useStudioStore((state) => state.setSpeed);
-  const resetCamera = useStudioStore((state) => state.resetCamera);
   const setViewerReady = useStudioStore((state) => state.setViewerReady);
   const selectClip = useStudioStore((state) => state.selectClip);
   const toggleFavorite = useStudioStore((state) => state.toggleFavorite);
@@ -440,14 +452,13 @@ function ViewerWorkspace() {
         </div>
       </div>
       <div className="playback-bar">
-        <button className="icon-button" onClick={() => setPlaying(!isPlaying)} disabled={!hasClips}>
+        <button
+          className="icon-button"
+          onClick={() => setPlaying(!isPlaying)}
+          disabled={!hasClips}
+          aria-label={isPlaying ? "Pause" : "Play"}
+        >
           {isPlaying ? <Pause size={18} /> : <Play size={18} />}
-        </button>
-        <button className="icon-button" onClick={() => setPlaying(false)} disabled={!hasClips}>
-          <CircleStop size={18} />
-        </button>
-        <button className="icon-button" onClick={resetCamera}>
-          <RotateCcw size={18} />
         </button>
         <input
           className="timeline"
@@ -616,9 +627,6 @@ function RightPanel() {
 export default function App() {
   const fetchFavorites = useStudioStore((state) => state.fetchFavorites);
   const loadFixture = useStudioStore((state) => state.loadFixture);
-  const selectedJob = useStudioStore((state) => state.selectedJob);
-  const selectedClipId = useStudioStore((state) => state.selectedClipId);
-  const comparisonClips = useStudioStore((state) => state.comparisonClips);
 
   useEffect(() => {
     const fixture = new URLSearchParams(window.location.search).get("fixture");
@@ -628,22 +636,8 @@ export default function App() {
     }
   }, [fetchFavorites, loadFixture]);
 
-  const activeSummary = useMemo(() => {
-    if (selectedJob) return `${selectedJob.status} · ${selectedJob.phase}`;
-    const clip = comparisonClips.find((item) => item.id === selectedClipId);
-    if (clip?.source === "favorite") return "favorite selected";
-    if (clip?.source === "fixture") return "fixture selected";
-    return "HY-Motion Studio";
-  }, [comparisonClips, selectedClipId, selectedJob]);
-
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <div>
-          <h1>HY-Motion Studio</h1>
-          <span>{activeSummary}</span>
-        </div>
-      </header>
       <ControlsPanel />
       <ViewerWorkspace />
       <RightPanel />

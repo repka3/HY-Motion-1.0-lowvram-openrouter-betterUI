@@ -40,11 +40,12 @@ const STEP_INTERVAL = 25;
 export type RightPanelTab = "info" | "starred";
 
 export const GENERATION_FORM_DEFAULTS: GenerationFormValues = {
-  prompt: "a female person kneeling down from a standing position in a feminine fashion",
-  durationSeconds: 4,
+  prompt:
+    "A person lowers from standing into a seated position on the floor, bends both knees to one side, places right hand on the floor for balance, and rests the left hand near the lap",
+  durationSeconds: 4.5,
   cfgScale: 5,
   steps: 50,
-  variationCount: 1,
+  variationCount: 4,
   seeds: ""
 };
 

@@ -37,6 +37,8 @@ class OpenRouterPromptTests(unittest.TestCase):
         self.assertEqual(settings["model"], DEFAULT_MODEL)
         self.assertIn("duration_seconds", settings["systemPrompt"])
         self.assertIn("seconds, not frames", settings["systemPrompt"])
+        self.assertIn('usually starts with "A person ..."', settings["systemPrompt"])
+        self.assertIn("A person walks forward.", settings["systemPrompt"])
         self.assertEqual(settings["defaultSystemPrompt"], settings["systemPrompt"])
         self.assertNotIn("duration\": <Integer, frames", settings["systemPrompt"])
 

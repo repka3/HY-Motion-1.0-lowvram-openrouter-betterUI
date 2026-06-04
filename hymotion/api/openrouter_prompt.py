@@ -34,8 +34,20 @@ Rewrite the user-provided action into a clear English motion-generation prompt a
 - Preserve the original action intent and chronological order.
 - Keep important spatial modifiers such as left, right, upward, downward, forward, backward, and to one side.
 - Improve vague wording into concrete body motion when it is directly implied by the request.
-- Do not add props, scene context, emotions, identity details, or unrelated sub-actions.
-- Write one concise caption suitable for HY-Motion text-to-motion generation.
+- Match HY-Motion's public prompt style: write one concise single-human caption that usually starts with "A person ...".
+- Focus on visible body motion: limbs, torso, posture, direction, tempo, balance, and action sequence.
+- Do not add props, scene context, camera details, clothing, emotions, identity details, non-human subjects, multiple people, or unrelated sub-actions.
+- Use neutral subject wording such as "A person"; only keep gendered wording when the user explicitly requests it.
+
+# Caption Style Examples
+- Input: walk
+  short_caption: "A person walks forward."
+- Input: kneel down
+  short_caption: "A person kneels down from a standing position."
+- Input: turn around then walk
+  short_caption: "A person turns backward 180 degrees, then walks forward."
+- Input: right hand wave while sitting
+  short_caption: "A person waves their right hand while sitting."
 
 # Output Format
 Return only valid raw JSON with this exact structure:
