@@ -3,13 +3,16 @@ import {
   Copy,
   Dice5,
   Info,
+  KeyRound,
   Pause,
   Play,
   RotateCcw,
+  Save,
   Send,
   SlidersHorizontal,
   Star,
-  Trash2
+  Trash2,
+  WandSparkles
 } from "lucide-react";
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 
@@ -27,6 +30,7 @@ const CONTROL_HELP = {
 } as const;
 
 type HelpKey = keyof typeof CONTROL_HELP;
+type LeftPanelTab = "generate" | "openrouter";
 
 function parseSeeds(value: string): number[] | undefined {
   const seeds = value
@@ -109,13 +113,114 @@ function FieldShell({
   );
 }
 
+function OpenRouterSettingsPanel() {
+  const settings = useStudioStore((state) => state.openRouterSettings);
+  const loading = useStudioStore((state) => state.openRouterLoading);
+  const saving = useStudioStore((state) => state.openRouterSaving);
+  const saveSettings = useStudioStore((state) => state.saveOpenRouterSettings);
+  const [apiKey, setApiKey] = useState("");
+  const [model, setModel] = useState("");
+  const [systemPrompt, setSystemPrompt] = useState("");
+
+  useEffect(() => {
+    if (!settings) return;
+    setModel(settings.model);
+    setSystemPrompt(settings.systemPrompt);
+  }, [settings]);
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    await saveSettings({
+      apiKey: apiKey.trim() || undefined,
+      model,
+      systemPrompt
+    });
+    setApiKey("");
+  };
+
+  const handleClearKey = async () => {
+    await saveSettings({
+      clearApiKey: true,
+      model,
+      systemPrompt
+    });
+    setApiKey("");
+  };
+
+  const handleResetPrompt = () => {
+    if (settings) setSystemPrompt(settings.defaultSystemPrompt);
+  };
+
+  return (
+    <form className="control-form openrouter-form" onSubmit={handleSubmit}>
+      <div className="settings-status">
+        <KeyRound size={14} />
+        <span>{loading ? "Loading settings" : settings?.hasApiKey ? "Key saved" : "No key saved"}</span>
+      </div>
+      <label>
+        <span>API key</span>
+        <input
+          type="password"
+          autoComplete="off"
+          value={apiKey}
+          onChange={(event) => setApiKey(event.target.value)}
+          placeholder={settings?.hasApiKey ? "saved key unchanged" : "sk-or-v1-..."}
+        />
+      </label>
+      <label>
+        <span>Model</span>
+        <input value={model} onChange={(event) => setModel(event.target.value)} placeholder="tencent/hy3-preview" />
+      </label>
+      <label>
+        <span>System prompt</span>
+        <textarea
+          className="system-prompt-input"
+          value={systemPrompt}
+          onChange={(event) => setSystemPrompt(event.target.value)}
+          rows={14}
+        />
+      </label>
+      <button className="secondary-button" disabled={!settings} type="button" onClick={handleResetPrompt}>
+        <RotateCcw size={15} />
+        Reset prompt to default
+      </button>
+      <div className="settings-actions">
+        <button className="primary-button" disabled={saving || !model.trim() || !systemPrompt.trim()} type="submit">
+          <Save size={16} />
+          {saving ? "Saving" : "Save"}
+        </button>
+        <button
+          className="secondary-button danger"
+          disabled={saving || !settings?.hasApiKey}
+          type="button"
+          onClick={() => void handleClearKey()}
+        >
+          <KeyRound size={15} />
+          Clear key
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function ControlsPanel() {
+  const [leftTab, setLeftTab] = useState<LeftPanelTab>("generate");
   const [activeHelp, setActiveHelp] = useState<HelpKey | null>(null);
   const form = useStudioStore((state) => state.generationForm);
+  const openRouterSettings = useStudioStore((state) => state.openRouterSettings);
   const updateGenerationForm = useStudioStore((state) => state.updateGenerationForm);
   const resetGenerationFormField = useStudioStore((state) => state.resetGenerationFormField);
   const submitting = useStudioStore((state) => state.submitting);
+  const promptEnhancing = useStudioStore((state) => state.promptEnhancing);
+  const fetchOpenRouterSettings = useStudioStore((state) => state.fetchOpenRouterSettings);
+  const enhanceGenerationPrompt = useStudioStore((state) => state.enhanceGenerationPrompt);
   const submitJob = useStudioStore((state) => state.submitJob);
+  const canEnhance =
+    Boolean(form.prompt.trim()) && Boolean(openRouterSettings?.hasApiKey) && !promptEnhancing && !submitting;
+
+  useEffect(() => {
+    void fetchOpenRouterSettings();
+  }, [fetchOpenRouterSettings]);
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -132,125 +237,156 @@ function ControlsPanel() {
   return (
     <aside className="panel left-panel">
       <div className="panel-title">
-        <span>Generate</span>
-        <SlidersHorizontal size={16} />
+        <span>{leftTab === "generate" ? "Generate" : "OpenRouter"}</span>
+        {leftTab === "generate" ? <SlidersHorizontal size={16} /> : <KeyRound size={16} />}
       </div>
-      <form className="control-form" onSubmit={handleSubmit}>
-        <FieldShell
-          label="Motion text"
-          helpKey="prompt"
-          activeHelp={activeHelp}
-          onHelp={setActiveHelp}
-          onReset={() => resetGenerationFormField("prompt")}
-        >
-          <textarea
-            value={form.prompt}
-            onChange={(event) => updateGenerationForm({ prompt: event.target.value })}
-            rows={7}
-          />
-        </FieldShell>
-        <div className="field-grid">
-          <FieldShell
-            label="Duration"
-            helpKey="duration"
-            activeHelp={activeHelp}
-            onHelp={setActiveHelp}
-            onReset={() => resetGenerationFormField("durationSeconds")}
-          >
-            <input
-              type="number"
-              min={0.5}
-              max={20}
-              step={0.5}
-              value={form.durationSeconds}
-              onChange={(event) => updateGenerationForm({ durationSeconds: Number(event.target.value) })}
-            />
-          </FieldShell>
-          <FieldShell
-            label="CFG"
-            helpKey="cfg"
-            activeHelp={activeHelp}
-            onHelp={setActiveHelp}
-            onReset={() => resetGenerationFormField("cfgScale")}
-          >
-            <div className="range-control">
-              <input
-                type="range"
-                min={1}
-                max={10}
-                step={0.5}
-                value={form.cfgScale}
-                onChange={(event) => updateGenerationForm({ cfgScale: Number(event.target.value) })}
-              />
-              <span className="range-value">{form.cfgScale.toFixed(1)}</span>
-            </div>
-          </FieldShell>
-          <FieldShell
-            label="Steps"
-            helpKey="steps"
-            activeHelp={activeHelp}
-            onHelp={setActiveHelp}
-            onReset={() => resetGenerationFormField("steps")}
-          >
-            <div className="range-control">
-              <input
-                type="range"
-                min={50}
-                max={200}
-                step={25}
-                value={form.steps}
-                onChange={(event) => updateGenerationForm({ steps: Number(event.target.value) })}
-              />
-              <span className="range-value">{form.steps}</span>
-            </div>
-          </FieldShell>
-          <FieldShell
-            label="Variations"
-            helpKey="variationCount"
-            activeHelp={activeHelp}
-            onHelp={setActiveHelp}
-            onReset={() => resetGenerationFormField("variationCount")}
-          >
-            <div className="range-control">
-              <input
-                type="range"
-                min={1}
-                max={8}
-                step={1}
-                value={form.variationCount}
-                onChange={(event) => updateGenerationForm({ variationCount: Number(event.target.value) })}
-              />
-              <span className="range-value">{form.variationCount}</span>
-            </div>
-          </FieldShell>
-        </div>
-        <FieldShell
-          label="Seeds"
-          helpKey="seeds"
-          activeHelp={activeHelp}
-          onHelp={setActiveHelp}
-          onReset={() => resetGenerationFormField("seeds")}
-        >
-          <div className="seed-row">
-            <input
-              value={form.seeds}
-              onChange={(event) => updateGenerationForm({ seeds: event.target.value })}
-              placeholder="auto"
-            />
-            <button
-              type="button"
-              className="icon-button"
-              onClick={() => updateGenerationForm({ seeds: randomSeeds(form.variationCount) })}
-            >
-              <Dice5 size={17} />
-            </button>
-          </div>
-        </FieldShell>
-        <button className="primary-button" disabled={submitting || !form.prompt.trim()} type="submit">
-          <Send size={17} />
-          {submitting ? "Queued" : "Generate"}
+      <div className="tabs left-tabs">
+        <button className={leftTab === "generate" ? "active" : ""} type="button" onClick={() => setLeftTab("generate")}>
+          Generate
         </button>
-      </form>
+        <button
+          className={leftTab === "openrouter" ? "active" : ""}
+          type="button"
+          onClick={() => setLeftTab("openrouter")}
+        >
+          OpenRouter
+        </button>
+      </div>
+      {leftTab === "openrouter" ? (
+        <OpenRouterSettingsPanel />
+      ) : (
+        <form className="control-form" onSubmit={handleSubmit}>
+          <FieldShell
+            label="Motion text"
+            helpKey="prompt"
+            activeHelp={activeHelp}
+            onHelp={setActiveHelp}
+            onReset={() => resetGenerationFormField("prompt")}
+          >
+            <textarea
+              value={form.prompt}
+              onChange={(event) => updateGenerationForm({ prompt: event.target.value })}
+              rows={7}
+            />
+          </FieldShell>
+          <button
+            className={`secondary-button enhance-button ${promptEnhancing ? "busy" : ""}`}
+            disabled={!canEnhance}
+            type="button"
+            onClick={() => void enhanceGenerationPrompt()}
+          >
+            {promptEnhancing ? <span className="spinner" aria-hidden="true" /> : <WandSparkles size={16} />}
+            {promptEnhancing ? "Enhancing" : "Enhance prompt and estimate duration"}
+          </button>
+          {promptEnhancing && (
+            <div className="busy-row" role="status" aria-live="polite">
+              <span className="spinner small" aria-hidden="true" />
+              <span>Waiting for OpenRouter response</span>
+            </div>
+          )}
+          <div className="field-grid">
+            <FieldShell
+              label="Duration"
+              helpKey="duration"
+              activeHelp={activeHelp}
+              onHelp={setActiveHelp}
+              onReset={() => resetGenerationFormField("durationSeconds")}
+            >
+              <input
+                type="number"
+                min={0.5}
+                max={20}
+                step={0.5}
+                value={form.durationSeconds}
+                onChange={(event) => updateGenerationForm({ durationSeconds: Number(event.target.value) })}
+              />
+            </FieldShell>
+            <FieldShell
+              label="CFG"
+              helpKey="cfg"
+              activeHelp={activeHelp}
+              onHelp={setActiveHelp}
+              onReset={() => resetGenerationFormField("cfgScale")}
+            >
+              <div className="range-control">
+                <input
+                  type="range"
+                  min={1}
+                  max={10}
+                  step={0.5}
+                  value={form.cfgScale}
+                  onChange={(event) => updateGenerationForm({ cfgScale: Number(event.target.value) })}
+                />
+                <span className="range-value">{form.cfgScale.toFixed(1)}</span>
+              </div>
+            </FieldShell>
+            <FieldShell
+              label="Steps"
+              helpKey="steps"
+              activeHelp={activeHelp}
+              onHelp={setActiveHelp}
+              onReset={() => resetGenerationFormField("steps")}
+            >
+              <div className="range-control">
+                <input
+                  type="range"
+                  min={50}
+                  max={200}
+                  step={25}
+                  value={form.steps}
+                  onChange={(event) => updateGenerationForm({ steps: Number(event.target.value) })}
+                />
+                <span className="range-value">{form.steps}</span>
+              </div>
+            </FieldShell>
+            <FieldShell
+              label="Variations"
+              helpKey="variationCount"
+              activeHelp={activeHelp}
+              onHelp={setActiveHelp}
+              onReset={() => resetGenerationFormField("variationCount")}
+            >
+              <div className="range-control">
+                <input
+                  type="range"
+                  min={1}
+                  max={8}
+                  step={1}
+                  value={form.variationCount}
+                  onChange={(event) => updateGenerationForm({ variationCount: Number(event.target.value) })}
+                />
+                <span className="range-value">{form.variationCount}</span>
+              </div>
+            </FieldShell>
+          </div>
+          <FieldShell
+            label="Seeds"
+            helpKey="seeds"
+            activeHelp={activeHelp}
+            onHelp={setActiveHelp}
+            onReset={() => resetGenerationFormField("seeds")}
+          >
+            <div className="seed-row">
+              <input
+                value={form.seeds}
+                onChange={(event) => updateGenerationForm({ seeds: event.target.value })}
+                placeholder="auto"
+              />
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => updateGenerationForm({ seeds: randomSeeds(form.variationCount) })}
+              >
+                <Dice5 size={17} />
+              </button>
+            </div>
+          </FieldShell>
+          <button className="primary-button" disabled={submitting || !form.prompt.trim()} type="submit">
+            <Send size={17} />
+            {submitting ? "Queued" : "Generate"}
+          </button>
+        </form>
+      )}
     </aside>
   );
 }

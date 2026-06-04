@@ -211,6 +211,11 @@ input:focus {
   color: #8bd59e;
 }
 
+.secondary-button.danger:not(:disabled) {
+  border-color: #7b3a32;
+  color: #ff9c8e;
+}
+
 .primary-button:disabled,
 .secondary-button:disabled,
 .icon-button:disabled {
@@ -269,6 +274,83 @@ input:focus {
   font-size: 11px;
   line-height: 1.4;
   font-weight: 520;
+}
+
+.enhance-button {
+  min-height: 38px;
+  height: auto;
+  padding: 0 10px;
+  line-height: 1.2;
+}
+
+.enhance-button.busy {
+  border-color: rgba(108, 191, 132, 0.75);
+  color: #8bd59e;
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(139, 213, 158, 0.28);
+  border-top-color: #8bd59e;
+  border-radius: 999px;
+  flex: none;
+  animation: spin 0.8s linear infinite;
+}
+
+.spinner.small {
+  width: 13px;
+  height: 13px;
+  border-width: 2px;
+}
+
+.busy-row {
+  min-height: 32px;
+  border: 1px solid rgba(108, 191, 132, 0.35);
+  border-radius: 6px;
+  background: rgba(108, 191, 132, 0.08);
+  color: #c7e9ce;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.openrouter-form {
+  gap: 13px;
+}
+
+.settings-status {
+  min-height: 34px;
+  border: 1px solid #3c3933;
+  border-radius: 6px;
+  background: #292722;
+  color: #ded7cc;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.system-prompt-input {
+  min-height: 280px;
+  font-size: 11px;
+}
+
+.settings-actions {
+  display: grid;
+  grid-template-columns: 1fr 108px;
+  gap: 8px;
 }
 
 .workspace {

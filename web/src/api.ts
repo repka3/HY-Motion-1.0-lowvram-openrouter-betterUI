@@ -1,4 +1,15 @@
-import type { FavoriteCreateRequest, FavoriteSummary, JobDetail, JobRequest, JobSummary, MotionFrames } from "./types";
+import type {
+  FavoriteCreateRequest,
+  FavoriteSummary,
+  JobDetail,
+  JobRequest,
+  JobSummary,
+  MotionFrames,
+  OpenRouterSettings,
+  OpenRouterSettingsUpdate,
+  PromptEnhanceRequest,
+  PromptEnhanceResponse
+} from "./types";
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -7,6 +18,14 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     const text = await response.text();
+    let detail: unknown;
+    try {
+      const parsed = JSON.parse(text) as { detail?: unknown };
+      detail = parsed.detail;
+    } catch {
+      // Fall through to the raw body when the backend did not return the usual FastAPI shape.
+    }
+    if (typeof detail === "string") throw new Error(detail);
     throw new Error(text || response.statusText);
   }
   return response.json() as Promise<T>;
@@ -53,6 +72,24 @@ export function getFavoriteMotion(favoriteId: string): Promise<MotionFrames> {
 
 export function deleteFavorite(favoriteId: string): Promise<{ ok: boolean }> {
   return requestJson<{ ok: boolean }>(`/api/favorites/${favoriteId}`, { method: "DELETE" });
+}
+
+export function getOpenRouterSettings(): Promise<OpenRouterSettings> {
+  return requestJson<OpenRouterSettings>("/api/openrouter/settings");
+}
+
+export function saveOpenRouterSettings(request: OpenRouterSettingsUpdate): Promise<OpenRouterSettings> {
+  return requestJson<OpenRouterSettings>("/api/openrouter/settings", {
+    method: "PUT",
+    body: JSON.stringify(request)
+  });
+}
+
+export function enhancePrompt(request: PromptEnhanceRequest): Promise<PromptEnhanceResponse> {
+  return requestJson<PromptEnhanceResponse>("/api/openrouter/enhance", {
+    method: "POST",
+    body: JSON.stringify(request)
+  });
 }
 
 export function createJobSocket(jobId: string): WebSocket {

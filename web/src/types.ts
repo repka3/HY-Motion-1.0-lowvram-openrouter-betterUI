@@ -30,6 +30,30 @@ export interface GenerationFormValues {
   seeds: string;
 }
 
+export interface OpenRouterSettings {
+  hasApiKey: boolean;
+  model: string;
+  systemPrompt: string;
+  defaultSystemPrompt: string;
+}
+
+export interface OpenRouterSettingsUpdate {
+  apiKey?: string;
+  model?: string;
+  systemPrompt?: string;
+  clearApiKey?: boolean;
+}
+
+export interface PromptEnhanceRequest {
+  prompt: string;
+}
+
+export interface PromptEnhanceResponse {
+  prompt: string;
+  durationSeconds: number;
+  model: string;
+}
+
 export interface VariationSummary {
   id: string;
   index: number;

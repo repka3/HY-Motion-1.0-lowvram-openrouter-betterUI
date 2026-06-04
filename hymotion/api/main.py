@@ -5,11 +5,21 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from hymotion.api.models import FavoriteCreateRequest, JobCreateRequest, JobCreateResponse
+from hymotion.api.models import (
+    FavoriteCreateRequest,
+    JobCreateRequest,
+    JobCreateResponse,
+    OpenRouterSettingsResponse,
+    OpenRouterSettingsUpdate,
+    PromptEnhanceRequest,
+    PromptEnhanceResponse,
+)
+from hymotion.api.openrouter_prompt import OpenRouterConfigError, OpenRouterPromptService, OpenRouterResponseError
 from hymotion.api.service import JobNotFound, JobService
 
 
 service = JobService()
+openrouter_service = OpenRouterPromptService()
 
 
 @asynccontextmanager
@@ -34,6 +44,39 @@ app.add_middleware(
 @app.get("/api/health")
 def health():
     return {"ok": True}
+
+
+@app.get("/api/openrouter/settings", response_model=OpenRouterSettingsResponse)
+def get_openrouter_settings():
+    try:
+        return openrouter_service.public_settings()
+    except OpenRouterConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.put("/api/openrouter/settings", response_model=OpenRouterSettingsResponse)
+def update_openrouter_settings(request: OpenRouterSettingsUpdate):
+    try:
+        return openrouter_service.update_settings(
+            api_key=request.apiKey,
+            model=request.model,
+            system_prompt=request.systemPrompt,
+            clear_api_key=request.clearApiKey,
+        )
+    except OpenRouterConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/openrouter/enhance", response_model=PromptEnhanceResponse)
+def enhance_prompt(request: PromptEnhanceRequest):
+    try:
+        return openrouter_service.enhance_prompt(request.prompt)
+    except OpenRouterConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except OpenRouterResponseError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"OpenRouter request failed: {exc}")
 
 
 @app.post("/api/jobs", response_model=JobCreateResponse)

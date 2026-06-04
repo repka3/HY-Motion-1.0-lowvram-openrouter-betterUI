@@ -82,6 +82,30 @@ class FavoriteCreateRequest(BaseModel):
     motion: Any
 
 
+class OpenRouterSettingsResponse(BaseModel):
+    hasApiKey: bool = False
+    model: str = ""
+    systemPrompt: str
+    defaultSystemPrompt: str
+
+
+class OpenRouterSettingsUpdate(BaseModel):
+    apiKey: Optional[str] = Field(None, max_length=1000)
+    model: Optional[str] = Field(None, max_length=240)
+    systemPrompt: Optional[str] = Field(None, max_length=12000)
+    clearApiKey: bool = False
+
+
+class PromptEnhanceRequest(BaseModel):
+    prompt: str = Field(..., min_length=1, max_length=2000)
+
+
+class PromptEnhanceResponse(BaseModel):
+    prompt: str
+    durationSeconds: float
+    model: str
+
+
 def model_to_dict(model: BaseModel) -> Dict[str, Any]:
     if hasattr(model, "model_dump"):
         return model.model_dump()

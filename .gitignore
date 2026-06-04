@@ -1,4 +1,5 @@
 cache_config.json
+openrouter_config.local.json
 __pycache__/
 *.pyc
 *.pyo

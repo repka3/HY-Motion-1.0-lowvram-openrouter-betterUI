@@ -6,10 +6,13 @@ import {
   createJob,
   createJobSocket,
   deleteFavorite,
+  enhancePrompt as enhancePromptRequest,
   getFavoriteMotion,
   getJob,
   getMotion,
-  listFavorites
+  getOpenRouterSettings,
+  listFavorites,
+  saveOpenRouterSettings as saveOpenRouterSettingsRequest
 } from "./api";
 import type {
   ComparisonClip,
@@ -20,6 +23,8 @@ import type {
   JobEvent,
   JobRequest,
   MotionFrames,
+  OpenRouterSettings,
+  OpenRouterSettingsUpdate,
   VariationSummary
 } from "./types";
 
@@ -45,6 +50,7 @@ export const GENERATION_FORM_DEFAULTS: GenerationFormValues = {
 
 interface StudioState {
   generationForm: GenerationFormValues;
+  openRouterSettings: OpenRouterSettings | null;
   selectedJob: JobDetail | null;
   selectedClipId: string | null;
   rightTab: RightPanelTab;
@@ -57,11 +63,17 @@ interface StudioState {
   statusLine: string;
   loading: boolean;
   submitting: boolean;
+  openRouterLoading: boolean;
+  openRouterSaving: boolean;
+  promptEnhancing: boolean;
   viewerReady: boolean;
   error: string | null;
   updateGenerationForm: (patch: Partial<GenerationFormValues>) => void;
   resetGenerationFormField: (field: keyof GenerationFormValues) => void;
   copyClipToGenerationForm: (clipId: string) => void;
+  fetchOpenRouterSettings: () => Promise<void>;
+  saveOpenRouterSettings: (request: OpenRouterSettingsUpdate) => Promise<void>;
+  enhanceGenerationPrompt: () => Promise<void>;
   fetchFavorites: () => Promise<void>;
   submitJob: (request: JobRequest) => Promise<void>;
   refreshSelectedJob: () => Promise<void>;
@@ -235,6 +247,7 @@ async function loadJobIntoState(jobId: string): Promise<JobDetail> {
 
 export const useStudioStore = create<StudioState>((set, get) => ({
   generationForm: GENERATION_FORM_DEFAULTS,
+  openRouterSettings: null,
   selectedJob: null,
   selectedClipId: null,
   rightTab: "info",
@@ -247,6 +260,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   statusLine: "Idle",
   loading: false,
   submitting: false,
+  openRouterLoading: false,
+  openRouterSaving: false,
+  promptEnhancing: false,
   viewerReady: false,
   error: null,
 
@@ -270,6 +286,51 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     const clip = get().comparisonClips.find((item) => item.id === clipId);
     if (!clip) return;
     set({ generationForm: generationFormFromClip(clip) });
+  },
+
+  fetchOpenRouterSettings: async () => {
+    set({ openRouterLoading: true, error: null });
+    try {
+      const openRouterSettings = await getOpenRouterSettings();
+      set({ openRouterSettings });
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : String(error) });
+    } finally {
+      set({ openRouterLoading: false });
+    }
+  },
+
+  saveOpenRouterSettings: async (request) => {
+    set({ openRouterSaving: true, error: null });
+    try {
+      const openRouterSettings = await saveOpenRouterSettingsRequest(request);
+      set({ openRouterSettings, statusLine: "OpenRouter settings saved" });
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : String(error) });
+    } finally {
+      set({ openRouterSaving: false });
+    }
+  },
+
+  enhanceGenerationPrompt: async () => {
+    const prompt = get().generationForm.prompt.trim();
+    if (!prompt) return;
+    set({ promptEnhancing: true, error: null, statusLine: "Enhancing prompt" });
+    try {
+      const result = await enhancePromptRequest({ prompt });
+      set((state) => ({
+        generationForm: {
+          ...state.generationForm,
+          prompt: result.prompt,
+          durationSeconds: result.durationSeconds
+        },
+        statusLine: `Enhanced with ${result.model}`
+      }));
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : String(error), statusLine: "Enhance failed" });
+    } finally {
+      set({ promptEnhancing: false });
+    }
   },
 
   fetchFavorites: async () => {
