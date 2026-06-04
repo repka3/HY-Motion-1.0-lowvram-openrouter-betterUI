@@ -1,26 +1,27 @@
-# HY-Motion 1.0 Low-VRAM Fork
+# HYMOTION studio
 
-This fork is focused on running the full Tencent HY-Motion 1.0 model on consumer GPUs with limited VRAM, starting with an RTX 3070 8GB test target.
+![HYMOTION studio interface](screenshots/home1.png)
 
-The important result so far: we can run the full `HY-Motion-1.0/latest.ckpt` path on 8GB VRAM without quantizing the motion model and without switching to the Lite checkpoint.
+HYMOTION studio is a local creator interface for Tencent HY-Motion 1.0, focused on making the full model usable on consumer GPUs with limited VRAM. The current app pairs a React/Three.js frontend with a FastAPI backend and a low-VRAM generation schedule that runs the full `HY-Motion-1.0/latest.ckpt` path on an RTX 3070 8GB class card without quantizing the motion model or switching to the Lite checkpoint.
 
-## Current Status
+## Current App State
 
-Validated locally:
+The app currently supports:
 
 - Full `HY-Motion-1.0`, not `HY-Motion-1.0-Lite`.
-- Full `Qwen/Qwen3-8B` text encoder, using the same BF16 dtype as the upstream/default text encoder path.
-- Full `openai/clip-vit-large-patch14`.
-- Text encoding runs once, then the text encoder is unloaded.
-- HY-Motion then runs one or more generations from the cached hidden states.
-- Multiple variations of the same prompt do not need repeated text encoding.
+- Full `Qwen/Qwen3-8B` text encoder and `openai/clip-vit-large-patch14`.
+- Text encoding once per prompt, then unloading the text encoders before loading HY-Motion.
+- One or more seeded variations generated sequentially from cached hidden states.
+- Browser-based generation controls for prompt, duration, CFG, inference steps, variations, and seeds.
+- A Three.js motion viewer with side-by-side variation comparison, playback controls, selected-clip metadata, and favorites.
+- OpenRouter-powered prompt enhancement and duration estimation, avoiding the local Text2MotionPrompter LLM download.
 
-Not validated as production UX yet:
+## Missing / Planned
 
-- A custom UI.
-- FBX export behavior in the low-VRAM flow.
-- Prompt rewriting / duration estimation.
-- Multi-GPU or CPU-only fallback.
+- Export generated motion to interchange formats such as `glb` and `fbx`.
+- Improve/fix animation positioning, grounding, and placement consistency.
+- Add stronger progress feedback and recovery paths around long-running generation jobs.
+- Validate multi-GPU and CPU-only fallback paths.
 
 ## Precision
 
