@@ -97,15 +97,15 @@ class JobServiceTests(unittest.IsolatedAsyncioTestCase):
                         prompt="walk forward",
                         durationSeconds=4,
                         cfgScale=5,
-                        steps=32,
+                        steps=75,
                         variationCount=2,
                         seeds=[11, 22],
                     )
                 )
                 job = await wait_for_status(service, created["jobId"], "succeeded")
                 self.assertEqual(job["phase"], "succeeded")
-                self.assertEqual(job["request"]["steps"], 32)
-                self.assertEqual(generator.last_request["steps"] if generator.last_request else None, 32)
+                self.assertEqual(job["request"]["steps"], 75)
+                self.assertEqual(generator.last_request["steps"] if generator.last_request else None, 75)
                 self.assertEqual([item["seed"] for item in job["variations"]], [11, 22])
                 self.assertGreaterEqual(len(job["events"]), 2)
             finally:

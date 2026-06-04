@@ -1,5 +1,6 @@
 import {
   CircleStop,
+  Copy,
   Dice5,
   Info,
   Pause,
@@ -15,15 +16,6 @@ import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { useStudioStore } from "./store";
 import type { ComparisonClip, FavoriteSummary } from "./types";
 import MotionViewer from "./viewer/MotionViewer";
-
-const DEFAULTS = {
-  prompt: "a female person kneeling down from a standing position in a feminine fashion",
-  duration: 4,
-  cfg: 5,
-  steps: 50,
-  variationCount: 4,
-  seeds: ""
-};
 
 const CONTROL_HELP = {
   prompt: "Describe the motion you want. Specific body action, direction, and style usually help more than long prose.",
@@ -118,25 +110,22 @@ function FieldShell({
 }
 
 function ControlsPanel() {
-  const [prompt, setPrompt] = useState(DEFAULTS.prompt);
-  const [duration, setDuration] = useState(DEFAULTS.duration);
-  const [cfg, setCfg] = useState(DEFAULTS.cfg);
-  const [steps, setSteps] = useState(DEFAULTS.steps);
-  const [variationCount, setVariationCount] = useState(DEFAULTS.variationCount);
-  const [seeds, setSeeds] = useState(DEFAULTS.seeds);
   const [activeHelp, setActiveHelp] = useState<HelpKey | null>(null);
+  const form = useStudioStore((state) => state.generationForm);
+  const updateGenerationForm = useStudioStore((state) => state.updateGenerationForm);
+  const resetGenerationFormField = useStudioStore((state) => state.resetGenerationFormField);
   const submitting = useStudioStore((state) => state.submitting);
   const submitJob = useStudioStore((state) => state.submitJob);
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     await submitJob({
-      prompt,
-      durationSeconds: duration,
-      cfgScale: cfg,
-      steps,
-      variationCount,
-      seeds: parseSeeds(seeds)
+      prompt: form.prompt,
+      durationSeconds: form.durationSeconds,
+      cfgScale: form.cfgScale,
+      steps: form.steps,
+      variationCount: form.variationCount,
+      seeds: parseSeeds(form.seeds)
     });
   };
 
@@ -152,9 +141,13 @@ function ControlsPanel() {
           helpKey="prompt"
           activeHelp={activeHelp}
           onHelp={setActiveHelp}
-          onReset={() => setPrompt(DEFAULTS.prompt)}
+          onReset={() => resetGenerationFormField("prompt")}
         >
-          <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={7} />
+          <textarea
+            value={form.prompt}
+            onChange={(event) => updateGenerationForm({ prompt: event.target.value })}
+            rows={7}
+          />
         </FieldShell>
         <div className="field-grid">
           <FieldShell
@@ -162,15 +155,15 @@ function ControlsPanel() {
             helpKey="duration"
             activeHelp={activeHelp}
             onHelp={setActiveHelp}
-            onReset={() => setDuration(DEFAULTS.duration)}
+            onReset={() => resetGenerationFormField("durationSeconds")}
           >
             <input
               type="number"
               min={0.5}
               max={20}
               step={0.5}
-              value={duration}
-              onChange={(event) => setDuration(Number(event.target.value))}
+              value={form.durationSeconds}
+              onChange={(event) => updateGenerationForm({ durationSeconds: Number(event.target.value) })}
             />
           </FieldShell>
           <FieldShell
@@ -178,47 +171,57 @@ function ControlsPanel() {
             helpKey="cfg"
             activeHelp={activeHelp}
             onHelp={setActiveHelp}
-            onReset={() => setCfg(DEFAULTS.cfg)}
+            onReset={() => resetGenerationFormField("cfgScale")}
           >
-            <input
-              type="number"
-              min={1}
-              max={20}
-              step={0.5}
-              value={cfg}
-              onChange={(event) => setCfg(Number(event.target.value))}
-            />
+            <div className="range-control">
+              <input
+                type="range"
+                min={1}
+                max={10}
+                step={0.5}
+                value={form.cfgScale}
+                onChange={(event) => updateGenerationForm({ cfgScale: Number(event.target.value) })}
+              />
+              <span className="range-value">{form.cfgScale.toFixed(1)}</span>
+            </div>
           </FieldShell>
           <FieldShell
             label="Steps"
             helpKey="steps"
             activeHelp={activeHelp}
             onHelp={setActiveHelp}
-            onReset={() => setSteps(DEFAULTS.steps)}
+            onReset={() => resetGenerationFormField("steps")}
           >
-            <input
-              type="number"
-              min={1}
-              max={200}
-              step={1}
-              value={steps}
-              onChange={(event) => setSteps(Number(event.target.value))}
-            />
+            <div className="range-control">
+              <input
+                type="range"
+                min={50}
+                max={200}
+                step={25}
+                value={form.steps}
+                onChange={(event) => updateGenerationForm({ steps: Number(event.target.value) })}
+              />
+              <span className="range-value">{form.steps}</span>
+            </div>
           </FieldShell>
           <FieldShell
             label="Variations"
             helpKey="variationCount"
             activeHelp={activeHelp}
             onHelp={setActiveHelp}
-            onReset={() => setVariationCount(DEFAULTS.variationCount)}
+            onReset={() => resetGenerationFormField("variationCount")}
           >
-            <input
-              type="number"
-              min={1}
-              max={16}
-              value={variationCount}
-              onChange={(event) => setVariationCount(Number(event.target.value))}
-            />
+            <div className="range-control">
+              <input
+                type="range"
+                min={1}
+                max={8}
+                step={1}
+                value={form.variationCount}
+                onChange={(event) => updateGenerationForm({ variationCount: Number(event.target.value) })}
+              />
+              <span className="range-value">{form.variationCount}</span>
+            </div>
           </FieldShell>
         </div>
         <FieldShell
@@ -226,16 +229,24 @@ function ControlsPanel() {
           helpKey="seeds"
           activeHelp={activeHelp}
           onHelp={setActiveHelp}
-          onReset={() => setSeeds(DEFAULTS.seeds)}
+          onReset={() => resetGenerationFormField("seeds")}
         >
           <div className="seed-row">
-            <input value={seeds} onChange={(event) => setSeeds(event.target.value)} placeholder="auto" />
-            <button type="button" className="icon-button" onClick={() => setSeeds(randomSeeds(variationCount))}>
+            <input
+              value={form.seeds}
+              onChange={(event) => updateGenerationForm({ seeds: event.target.value })}
+              placeholder="auto"
+            />
+            <button
+              type="button"
+              className="icon-button"
+              onClick={() => updateGenerationForm({ seeds: randomSeeds(form.variationCount) })}
+            >
               <Dice5 size={17} />
             </button>
           </div>
         </FieldShell>
-        <button className="primary-button" disabled={submitting || !prompt.trim()} type="submit">
+        <button className="primary-button" disabled={submitting || !form.prompt.trim()} type="submit">
           <Send size={17} />
           {submitting ? "Queued" : "Generate"}
         </button>
@@ -331,7 +342,13 @@ function InfoPanel({ clip }: { clip: ComparisonClip | undefined }) {
   const selectedJob = useStudioStore((state) => state.selectedJob);
   const cancelSelectedJob = useStudioStore((state) => state.cancelSelectedJob);
   const toggleFavorite = useStudioStore((state) => state.toggleFavorite);
+  const copyClipToGenerationForm = useStudioStore((state) => state.copyClipToGenerationForm);
+  const [copiedClipId, setCopiedClipId] = useState<string | null>(null);
   const canCancel = selectedJob?.status === "queued" || selectedJob?.status === "running";
+
+  useEffect(() => {
+    setCopiedClipId(null);
+  }, [clip?.id]);
 
   if (!clip) {
     return <div className="quiet-line">Select a generation in the viewer</div>;
@@ -359,6 +376,17 @@ function InfoPanel({ clip }: { clip: ComparisonClip | undefined }) {
           </button>
         </div>
       </div>
+      <button
+        className={`secondary-button ${copiedClipId === clip.id ? "selected" : ""}`}
+        type="button"
+        onClick={() => {
+          copyClipToGenerationForm(clip.id);
+          setCopiedClipId(clip.id);
+        }}
+      >
+        <Copy size={15} />
+        {copiedClipId === clip.id ? "Copied to controls" : "Copy to controls"}
+      </button>
       <div className="modal-section inline-section">
         <span className="section-label">Prompt</span>
         <p className="prompt-full">{clip.prompt}</p>

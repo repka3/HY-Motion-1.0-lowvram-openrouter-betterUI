@@ -15,6 +15,7 @@ import type {
   ComparisonClip,
   FavoriteCreateRequest,
   FavoriteSummary,
+  GenerationFormValues,
   JobDetail,
   JobEvent,
   JobRequest,
@@ -25,10 +26,25 @@ import type {
 let activeSocket: WebSocket | null = null;
 let activeSelectionId: string | null = null;
 const loadingMotionKeys = new Set<string>();
+const MIN_CFG_SCALE = 1;
+const MAX_CFG_SCALE = 10;
+const MIN_STEPS = 50;
+const MAX_STEPS = 200;
+const STEP_INTERVAL = 25;
 
 export type RightPanelTab = "info" | "starred";
 
+export const GENERATION_FORM_DEFAULTS: GenerationFormValues = {
+  prompt: "a female person kneeling down from a standing position in a feminine fashion",
+  durationSeconds: 4,
+  cfgScale: 5,
+  steps: 50,
+  variationCount: 1,
+  seeds: ""
+};
+
 interface StudioState {
+  generationForm: GenerationFormValues;
   selectedJob: JobDetail | null;
   selectedClipId: string | null;
   rightTab: RightPanelTab;
@@ -43,6 +59,9 @@ interface StudioState {
   submitting: boolean;
   viewerReady: boolean;
   error: string | null;
+  updateGenerationForm: (patch: Partial<GenerationFormValues>) => void;
+  resetGenerationFormField: (field: keyof GenerationFormValues) => void;
+  copyClipToGenerationForm: (clipId: string) => void;
   fetchFavorites: () => Promise<void>;
   submitJob: (request: JobRequest) => Promise<void>;
   refreshSelectedJob: () => Promise<void>;
@@ -190,11 +209,32 @@ function favoriteRequestFromClip(clip: ComparisonClip): FavoriteCreateRequest {
   };
 }
 
+function clampCfgScale(value: number): number {
+  return Math.min(MAX_CFG_SCALE, Math.max(MIN_CFG_SCALE, value));
+}
+
+function normalizeSteps(value: number): number {
+  const clamped = Math.min(MAX_STEPS, Math.max(MIN_STEPS, value));
+  return MIN_STEPS + Math.round((clamped - MIN_STEPS) / STEP_INTERVAL) * STEP_INTERVAL;
+}
+
+function generationFormFromClip(clip: ComparisonClip): GenerationFormValues {
+  return {
+    prompt: clip.prompt,
+    durationSeconds: clip.durationSeconds,
+    cfgScale: clampCfgScale(clip.cfgScale),
+    steps: normalizeSteps(clip.steps),
+    variationCount: 1,
+    seeds: String(clip.seed)
+  };
+}
+
 async function loadJobIntoState(jobId: string): Promise<JobDetail> {
   return getJob(jobId);
 }
 
 export const useStudioStore = create<StudioState>((set, get) => ({
+  generationForm: GENERATION_FORM_DEFAULTS,
   selectedJob: null,
   selectedClipId: null,
   rightTab: "info",
@@ -209,6 +249,28 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   submitting: false,
   viewerReady: false,
   error: null,
+
+  updateGenerationForm: (patch) =>
+    set((state) => ({
+      generationForm: {
+        ...state.generationForm,
+        ...patch
+      }
+    })),
+
+  resetGenerationFormField: (field) =>
+    set((state) => ({
+      generationForm: {
+        ...state.generationForm,
+        [field]: GENERATION_FORM_DEFAULTS[field]
+      }
+    })),
+
+  copyClipToGenerationForm: (clipId) => {
+    const clip = get().comparisonClips.find((item) => item.id === clipId);
+    if (!clip) return;
+    set({ generationForm: generationFormFromClip(clip) });
+  },
 
   fetchFavorites: async () => {
     const favorites = await listFavorites();

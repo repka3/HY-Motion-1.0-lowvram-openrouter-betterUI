@@ -254,7 +254,7 @@ class LowVramMotionGenerator:
     @staticmethod
     def _resolve_seeds(request: Dict[str, Any]) -> List[int]:
         seeds = request.get("seeds") or []
-        variation_count = int(request.get("variationCount", 4))
+        variation_count = int(request.get("variationCount", 1))
         if seeds:
             seeds = [int(seed) for seed in seeds[:variation_count]]
         if len(seeds) < variation_count:

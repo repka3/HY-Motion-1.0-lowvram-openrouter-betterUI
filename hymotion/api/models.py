@@ -23,9 +23,9 @@ JobPhase = Literal[
 class JobCreateRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=2000)
     durationSeconds: float = Field(4.0, ge=0.5, le=20.0)
-    cfgScale: float = Field(5.0, ge=1.0, le=20.0)
-    steps: int = Field(50, ge=1, le=200)
-    variationCount: int = Field(4, ge=1, le=16)
+    cfgScale: float = Field(5.0, ge=1.0, le=10.0)
+    steps: int = Field(50, ge=50, le=200, multiple_of=25)
+    variationCount: int = Field(1, ge=1, le=8)
     seeds: Optional[List[int]] = None
 
 
@@ -69,9 +69,9 @@ class FavoriteCreateRequest(BaseModel):
     variationIndex: int = 0
     prompt: str = Field(..., min_length=1, max_length=2000)
     durationSeconds: float = Field(4.0, ge=0.5, le=20.0)
-    cfgScale: float = Field(5.0, ge=1.0, le=20.0)
-    steps: int = Field(50, ge=1, le=200)
-    variationCount: int = Field(1, ge=1, le=16)
+    cfgScale: float = Field(5.0, ge=1.0, le=10.0)
+    steps: int = Field(50, ge=50, le=200, multiple_of=25)
+    variationCount: int = Field(1, ge=1, le=8)
     seed: int
     seconds: Optional[float] = None
     frameCount: Optional[int] = None

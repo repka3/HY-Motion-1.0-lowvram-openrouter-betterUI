@@ -141,7 +141,38 @@ input:focus {
   gap: 8px;
 }
 
+.range-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  gap: 8px;
+  align-items: center;
+  height: 38px;
+}
+
+.range-control input[type="range"] {
+  height: 38px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  accent-color: #6cbf84;
+}
+
+.range-value {
+  height: 38px;
+  border: 1px solid #413e38;
+  border-radius: 6px;
+  background: #171613;
+  color: #f3efe6;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 720;
+  font-variant-numeric: tabular-nums;
+}
+
 .primary-button,
+.secondary-button,
 .icon-button {
   border: 1px solid #4a473f;
   border-radius: 6px;
@@ -162,7 +193,26 @@ input:focus {
   font-weight: 760;
 }
 
+.secondary-button {
+  width: 100%;
+  background: #292722;
+  color: #f3efe6;
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.secondary-button:hover {
+  border-color: #5c564d;
+  background: #302d27;
+}
+
+.secondary-button.selected {
+  border-color: rgba(108, 191, 132, 0.75);
+  color: #8bd59e;
+}
+
 .primary-button:disabled,
+.secondary-button:disabled,
 .icon-button:disabled {
   opacity: 0.45;
   cursor: not-allowed;

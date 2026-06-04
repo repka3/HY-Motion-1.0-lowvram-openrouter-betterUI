@@ -21,6 +21,15 @@ export interface JobRequest {
   seeds?: number[];
 }
 
+export interface GenerationFormValues {
+  prompt: string;
+  durationSeconds: number;
+  cfgScale: number;
+  steps: number;
+  variationCount: number;
+  seeds: string;
+}
+
 export interface VariationSummary {
   id: string;
   index: number;
