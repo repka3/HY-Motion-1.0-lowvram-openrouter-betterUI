@@ -1,21 +1,40 @@
 import {
   CircleStop,
   Dice5,
+  Info,
   Pause,
   Play,
-  RefreshCw,
   RotateCcw,
   Send,
   SlidersHorizontal,
-  Trash2,
-  X
+  Star,
+  Trash2
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 
 import { useStudioStore } from "./store";
+import type { ComparisonClip, FavoriteSummary } from "./types";
 import MotionViewer from "./viewer/MotionViewer";
 
-const DEFAULT_PROMPT = "a female person kneeling down from a standing position in a feminine fashion";
+const DEFAULTS = {
+  prompt: "a female person kneeling down from a standing position in a feminine fashion",
+  duration: 4,
+  cfg: 5,
+  steps: 50,
+  variationCount: 4,
+  seeds: ""
+};
+
+const CONTROL_HELP = {
+  prompt: "Describe the motion you want. Specific body action, direction, and style usually help more than long prose.",
+  duration: "Target motion length in seconds. Longer clips use more frames and can require more memory.",
+  cfg: "Classifier-free guidance strength. Higher values follow the prompt harder, but can look less natural.",
+  steps: "Diffusion/ODE inference steps. More steps can improve quality but each variation takes longer.",
+  variationCount: "How many seeded variations to generate for this prompt. They appear together in the viewer as they finish.",
+  seeds: "Optional comma-separated seeds. Leave empty for automatic random seeds, or set fixed seeds for repeatable tests."
+} as const;
+
+type HelpKey = keyof typeof CONTROL_HELP;
 
 function parseSeeds(value: string): number[] | undefined {
   const seeds = value
@@ -31,15 +50,6 @@ function randomSeeds(count: number): string {
   return Array.from({ length: count }, () => Math.floor(Math.random() * 1_000_000_000)).join(", ");
 }
 
-function formatTime(value?: string | null): string {
-  if (!value) return "-";
-  return new Intl.DateTimeFormat(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit"
-  }).format(new Date(value));
-}
-
 function formatDateTime(value?: string | null): string {
   if (!value) return "-";
   return new Intl.DateTimeFormat(undefined, {
@@ -52,20 +62,69 @@ function formatSeconds(value?: number | null): string {
   return typeof value === "number" ? `${value.toFixed(2)}s` : "-";
 }
 
-function phaseClass(phase: string): string {
-  if (phase === "succeeded") return "good";
-  if (phase === "failed" || phase === "cancelled") return "bad";
-  if (phase === "queued") return "muted";
-  return "active";
+function clipTitle(clip: ComparisonClip | FavoriteSummary): string {
+  return `V${clip.variationIndex + 1} · seed ${clip.seed}`;
+}
+
+function FieldShell({
+  label,
+  helpKey,
+  activeHelp,
+  onHelp,
+  onReset,
+  children
+}: {
+  label: string;
+  helpKey: HelpKey;
+  activeHelp: HelpKey | null;
+  onHelp: (key: HelpKey | null) => void;
+  onReset: () => void;
+  children: ReactNode;
+}) {
+  const open = activeHelp === helpKey;
+  return (
+    <label className="control-field">
+      <span className="field-head">
+        <span>{label}</span>
+        <span className="field-actions">
+          <button
+            type="button"
+            className="icon-button tiny"
+            aria-label={`Reset ${label}`}
+            onClick={(event) => {
+              event.preventDefault();
+              onReset();
+            }}
+          >
+            <RotateCcw size={13} />
+          </button>
+          <button
+            type="button"
+            className={`icon-button tiny ${open ? "selected" : ""}`}
+            aria-label={`${label} info`}
+            onClick={(event) => {
+              event.preventDefault();
+              onHelp(open ? null : helpKey);
+            }}
+          >
+            <Info size={13} />
+          </button>
+        </span>
+      </span>
+      {children}
+      {open && <span className="help-popover">{CONTROL_HELP[helpKey]}</span>}
+    </label>
+  );
 }
 
 function ControlsPanel() {
-  const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
-  const [duration, setDuration] = useState(4);
-  const [cfg, setCfg] = useState(5);
-  const [steps, setSteps] = useState(50);
-  const [variationCount, setVariationCount] = useState(4);
-  const [seeds, setSeeds] = useState("");
+  const [prompt, setPrompt] = useState(DEFAULTS.prompt);
+  const [duration, setDuration] = useState(DEFAULTS.duration);
+  const [cfg, setCfg] = useState(DEFAULTS.cfg);
+  const [steps, setSteps] = useState(DEFAULTS.steps);
+  const [variationCount, setVariationCount] = useState(DEFAULTS.variationCount);
+  const [seeds, setSeeds] = useState(DEFAULTS.seeds);
+  const [activeHelp, setActiveHelp] = useState<HelpKey | null>(null);
   const submitting = useStudioStore((state) => state.submitting);
   const submitJob = useStudioStore((state) => state.submitJob);
 
@@ -84,17 +143,27 @@ function ControlsPanel() {
   return (
     <aside className="panel left-panel">
       <div className="panel-title">
-        <span>Prompt</span>
+        <span>Generate</span>
         <SlidersHorizontal size={16} />
       </div>
       <form className="control-form" onSubmit={handleSubmit}>
-        <label>
-          <span>Motion text</span>
+        <FieldShell
+          label="Motion text"
+          helpKey="prompt"
+          activeHelp={activeHelp}
+          onHelp={setActiveHelp}
+          onReset={() => setPrompt(DEFAULTS.prompt)}
+        >
           <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={7} />
-        </label>
+        </FieldShell>
         <div className="field-grid">
-          <label>
-            <span>Duration</span>
+          <FieldShell
+            label="Duration"
+            helpKey="duration"
+            activeHelp={activeHelp}
+            onHelp={setActiveHelp}
+            onReset={() => setDuration(DEFAULTS.duration)}
+          >
             <input
               type="number"
               min={0.5}
@@ -103,9 +172,14 @@ function ControlsPanel() {
               value={duration}
               onChange={(event) => setDuration(Number(event.target.value))}
             />
-          </label>
-          <label>
-            <span>CFG</span>
+          </FieldShell>
+          <FieldShell
+            label="CFG"
+            helpKey="cfg"
+            activeHelp={activeHelp}
+            onHelp={setActiveHelp}
+            onReset={() => setCfg(DEFAULTS.cfg)}
+          >
             <input
               type="number"
               min={1}
@@ -114,9 +188,14 @@ function ControlsPanel() {
               value={cfg}
               onChange={(event) => setCfg(Number(event.target.value))}
             />
-          </label>
-          <label>
-            <span>Steps</span>
+          </FieldShell>
+          <FieldShell
+            label="Steps"
+            helpKey="steps"
+            activeHelp={activeHelp}
+            onHelp={setActiveHelp}
+            onReset={() => setSteps(DEFAULTS.steps)}
+          >
             <input
               type="number"
               min={1}
@@ -125,9 +204,14 @@ function ControlsPanel() {
               value={steps}
               onChange={(event) => setSteps(Number(event.target.value))}
             />
-          </label>
-          <label>
-            <span>Variations</span>
+          </FieldShell>
+          <FieldShell
+            label="Variations"
+            helpKey="variationCount"
+            activeHelp={activeHelp}
+            onHelp={setActiveHelp}
+            onReset={() => setVariationCount(DEFAULTS.variationCount)}
+          >
             <input
               type="number"
               min={1}
@@ -135,17 +219,22 @@ function ControlsPanel() {
               value={variationCount}
               onChange={(event) => setVariationCount(Number(event.target.value))}
             />
-          </label>
+          </FieldShell>
         </div>
-        <label>
-          <span>Seeds</span>
+        <FieldShell
+          label="Seeds"
+          helpKey="seeds"
+          activeHelp={activeHelp}
+          onHelp={setActiveHelp}
+          onReset={() => setSeeds(DEFAULTS.seeds)}
+        >
           <div className="seed-row">
             <input value={seeds} onChange={(event) => setSeeds(event.target.value)} placeholder="auto" />
             <button type="button" className="icon-button" onClick={() => setSeeds(randomSeeds(variationCount))}>
               <Dice5 size={17} />
             </button>
           </div>
-        </label>
+        </FieldShell>
         <button className="primary-button" disabled={submitting || !prompt.trim()} type="submit">
           <Send size={17} />
           {submitting ? "Queued" : "Generate"}
@@ -165,13 +254,14 @@ function ViewerWorkspace() {
   const loading = useStudioStore((state) => state.loading);
   const viewerReady = useStudioStore((state) => state.viewerReady);
   const selectedJob = useStudioStore((state) => state.selectedJob);
-  const selectedVariationId = useStudioStore((state) => state.selectedVariationId);
+  const selectedClipId = useStudioStore((state) => state.selectedClipId);
   const setCurrentFrame = useStudioStore((state) => state.setCurrentFrame);
   const setPlaying = useStudioStore((state) => state.setPlaying);
   const setSpeed = useStudioStore((state) => state.setSpeed);
   const resetCamera = useStudioStore((state) => state.resetCamera);
   const setViewerReady = useStudioStore((state) => state.setViewerReady);
-  const openVariationDetails = useStudioStore((state) => state.openVariationDetails);
+  const selectClip = useStudioStore((state) => state.selectClip);
+  const toggleFavorite = useStudioStore((state) => state.toggleFavorite);
 
   const totalFrames = useMemo(() => Math.max(0, ...comparisonClips.map((clip) => clip.frames.length)), [comparisonClips]);
   const hasClips = comparisonClips.length > 0;
@@ -185,14 +275,15 @@ function ViewerWorkspace() {
       <div className="viewer-shell">
         <MotionViewer
           clips={comparisonClips}
-          selectedVariationId={selectedVariationId}
+          selectedClipId={selectedClipId}
           currentFrame={displayFrame}
           isPlaying={isPlaying}
           speed={speed}
           resetToken={resetToken}
           onFrameChange={setCurrentFrame}
           onReadyChange={setViewerReady}
-          onClipClick={openVariationDetails}
+          onClipClick={selectClip}
+          onFavoriteClick={(clipId) => void toggleFavorite(clipId)}
         />
         {!hasClips && <div className="empty-viewer">{loading ? "Waiting for motion" : "No motion selected"}</div>}
         {hasClips && !viewerReady && <div className="loading-viewer">Loading model</div>}
@@ -236,171 +327,150 @@ function ViewerWorkspace() {
   );
 }
 
-function HistoryPanel() {
-  const jobs = useStudioStore((state) => state.jobs);
+function InfoPanel({ clip }: { clip: ComparisonClip | undefined }) {
   const selectedJob = useStudioStore((state) => state.selectedJob);
-  const selectedVariationId = useStudioStore((state) => state.selectedVariationId);
-  const fetchJobs = useStudioStore((state) => state.fetchJobs);
-  const selectJob = useStudioStore((state) => state.selectJob);
-  const openVariationDetails = useStudioStore((state) => state.openVariationDetails);
   const cancelSelectedJob = useStudioStore((state) => state.cancelSelectedJob);
-  const error = useStudioStore((state) => state.error);
-
+  const toggleFavorite = useStudioStore((state) => state.toggleFavorite);
   const canCancel = selectedJob?.status === "queued" || selectedJob?.status === "running";
-  const selectedPrompt = selectedJob?.request.prompt ?? "";
+
+  if (!clip) {
+    return <div className="quiet-line">Select a generation in the viewer</div>;
+  }
+
+  const favorited = Boolean(clip.favoriteId);
 
   return (
-    <aside className="panel right-panel">
-      <div className="panel-title">
-        <span>Jobs</span>
-        <button className="icon-button compact" onClick={fetchJobs}>
-          <RefreshCw size={15} />
-        </button>
-      </div>
-      {error && <div className="error-line">{error}</div>}
-      <div className="job-list">
-        {jobs.map((job) => (
-          <button
-            key={job.jobId}
-            className={`job-row ${selectedJob?.jobId === job.jobId ? "selected" : ""}`}
-            onClick={() => selectJob(job.jobId)}
-          >
-            <span className={`dot ${phaseClass(job.phase)}`} />
-            <span className="job-text">{job.request.prompt}</span>
-            <span className="job-time">{formatTime(job.createdAt)}</span>
-          </button>
-        ))}
-        {!jobs.length && <div className="quiet-line">No jobs yet</div>}
-      </div>
-      <div className="detail-block">
-        <div className="detail-head">
+    <div className="info-panel">
+      <div className="info-head">
+        <div>
           <span>Selected</span>
+          <b>{clipTitle(clip)}</b>
+        </div>
+        <div className="info-actions">
+          <button
+            className={`icon-button compact ${favorited ? "selected" : ""}`}
+            onClick={() => void toggleFavorite(clip.id)}
+            aria-label={favorited ? "Remove favorite" : "Favorite generation"}
+          >
+            <Star size={15} fill={favorited ? "currentColor" : "none"} />
+          </button>
           <button className="icon-button compact danger" disabled={!canCancel} onClick={cancelSelectedJob}>
             <Trash2 size={15} />
           </button>
         </div>
-        {selectedJob ? (
-          <>
-            <p className="selected-prompt">{selectedPrompt}</p>
-            <div className="metadata-grid">
-              <span>Status</span>
-              <b>{selectedJob.status}</b>
-              <span>Duration</span>
-              <b>{selectedJob.request.durationSeconds}s</b>
-              <span>CFG</span>
-              <b>{selectedJob.request.cfgScale}</b>
-              <span>Steps</span>
-              <b>{selectedJob.request.steps ?? 50}</b>
-              <span>Queue</span>
-              <b>{selectedJob.queuePosition ?? "-"}</b>
-            </div>
-            <div className="variation-list">
-              {selectedJob.variations.map((variation) => (
-                <button
-                  key={variation.id}
-                  className={`variation-row ${selectedVariationId === variation.id ? "selected" : ""}`}
-                  onClick={() => openVariationDetails(variation.id)}
-                >
-                  <span>V{variation.index + 1}</span>
-                  <b>{variation.seed}</b>
-                  <span>{variation.frameCount ? `${variation.frameCount}f` : "-"}</span>
-                </button>
-              ))}
-              {!selectedJob.variations.length && <div className="quiet-line">Waiting for variations</div>}
-            </div>
-          </>
-        ) : (
-          <div className="quiet-line">No job selected</div>
-        )}
       </div>
-    </aside>
-  );
-}
-
-function DetailsDialog() {
-  const selectedJob = useStudioStore((state) => state.selectedJob);
-  const detailVariationId = useStudioStore((state) => state.detailVariationId);
-  const closeVariationDetails = useStudioStore((state) => state.closeVariationDetails);
-
-  const variation = selectedJob?.variations.find((item) => item.id === detailVariationId);
-  if (!selectedJob || !variation) return null;
-
-  return (
-    <div className="modal-backdrop" onClick={closeVariationDetails}>
-      <section className="details-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
-        <div className="modal-head">
-          <div>
-            <span>Variation details</span>
-            <b>V{variation.index + 1}</b>
-          </div>
-          <button className="icon-button compact" onClick={closeVariationDetails}>
-            <X size={15} />
-          </button>
-        </div>
-        <div className="modal-section">
-          <span className="section-label">Prompt</span>
-          <p className="prompt-full">{selectedJob.request.prompt}</p>
-        </div>
-        <div className="metadata-grid modal-grid">
-          <span>Job</span>
-          <b>{selectedJob.jobId}</b>
-          <span>Status</span>
-          <b>{selectedJob.status}</b>
-          <span>Seed</span>
-          <b>{variation.seed}</b>
-          <span>Frames</span>
-          <b>{variation.frameCount ?? "-"}</b>
-          <span>Generation</span>
-          <b>{formatSeconds(variation.seconds)}</b>
-          <span>Duration</span>
-          <b>{selectedJob.request.durationSeconds}s</b>
-          <span>CFG</span>
-          <b>{selectedJob.request.cfgScale}</b>
-          <span>Steps</span>
-          <b>{selectedJob.request.steps ?? 50}</b>
-          <span>Variations</span>
-          <b>{selectedJob.request.variationCount}</b>
-          <span>Created</span>
-          <b>{formatDateTime(selectedJob.createdAt)}</b>
-          <span>Started</span>
-          <b>{formatDateTime(selectedJob.startedAt)}</b>
-          <span>Completed</span>
-          <b>{formatDateTime(selectedJob.completedAt)}</b>
-          <span>Base file</span>
-          <b>{variation.baseFilename ?? "-"}</b>
-        </div>
-      </section>
+      <div className="modal-section inline-section">
+        <span className="section-label">Prompt</span>
+        <p className="prompt-full">{clip.prompt}</p>
+      </div>
+      <div className="metadata-grid modal-grid">
+        <span>Source</span>
+        <b>{clip.source}</b>
+        <span>Status</span>
+        <b>{clip.status ?? "-"}</b>
+        <span>Seed</span>
+        <b>{clip.seed}</b>
+        <span>Frames</span>
+        <b>{clip.frameCount}</b>
+        <span>Generation</span>
+        <b>{formatSeconds(clip.seconds)}</b>
+        <span>Duration</span>
+        <b>{clip.durationSeconds}s</b>
+        <span>CFG</span>
+        <b>{clip.cfgScale}</b>
+        <span>Steps</span>
+        <b>{clip.steps}</b>
+        <span>Variations</span>
+        <b>{clip.variationCount}</b>
+        <span>Created</span>
+        <b>{formatDateTime(clip.jobCreatedAt)}</b>
+        <span>Started</span>
+        <b>{formatDateTime(clip.jobStartedAt)}</b>
+        <span>Completed</span>
+        <b>{formatDateTime(clip.jobCompletedAt)}</b>
+        <span>Favorited</span>
+        <b>{formatDateTime(clip.favoritedAt)}</b>
+        <span>Base file</span>
+        <b>{clip.baseFilename ?? "-"}</b>
+      </div>
     </div>
   );
 }
 
+function StarredPanel() {
+  const favorites = useStudioStore((state) => state.favorites);
+  const loadFavorite = useStudioStore((state) => state.loadFavorite);
+  const deleteFavoriteById = useStudioStore((state) => state.deleteFavoriteById);
+
+  if (!favorites.length) {
+    return <div className="quiet-line">No starred generations</div>;
+  }
+
+  return (
+    <div className="favorite-list">
+      {favorites.map((favorite) => (
+        <div className="favorite-row" key={favorite.id}>
+          <button className="favorite-main" onClick={() => void loadFavorite(favorite.id)}>
+            <span>{clipTitle(favorite)}</span>
+            <b>{favorite.prompt}</b>
+            <small>{formatDateTime(favorite.favoritedAt)}</small>
+          </button>
+          <button className="icon-button compact danger" onClick={() => void deleteFavoriteById(favorite.id)}>
+            <Trash2 size={15} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RightPanel() {
+  const selectedClipId = useStudioStore((state) => state.selectedClipId);
+  const comparisonClips = useStudioStore((state) => state.comparisonClips);
+  const rightTab = useStudioStore((state) => state.rightTab);
+  const setRightTab = useStudioStore((state) => state.setRightTab);
+  const error = useStudioStore((state) => state.error);
+  const favorites = useStudioStore((state) => state.favorites);
+  const selectedClip = comparisonClips.find((clip) => clip.id === selectedClipId);
+
+  return (
+    <aside className="panel right-panel">
+      <div className="tabs">
+        <button className={rightTab === "info" ? "active" : ""} onClick={() => setRightTab("info")}>
+          Info
+        </button>
+        <button className={rightTab === "starred" ? "active" : ""} onClick={() => setRightTab("starred")}>
+          Starred <span>{favorites.length}</span>
+        </button>
+      </div>
+      {error && <div className="error-line">{error}</div>}
+      {rightTab === "info" ? <InfoPanel clip={selectedClip} /> : <StarredPanel />}
+    </aside>
+  );
+}
+
 export default function App() {
-  const fetchJobs = useStudioStore((state) => state.fetchJobs);
-  const selectJob = useStudioStore((state) => state.selectJob);
+  const fetchFavorites = useStudioStore((state) => state.fetchFavorites);
   const loadFixture = useStudioStore((state) => state.loadFixture);
-  const jobs = useStudioStore((state) => state.jobs);
   const selectedJob = useStudioStore((state) => state.selectedJob);
+  const selectedClipId = useStudioStore((state) => state.selectedClipId);
+  const comparisonClips = useStudioStore((state) => state.comparisonClips);
 
   useEffect(() => {
     const fixture = new URLSearchParams(window.location.search).get("fixture");
+    void fetchFavorites();
     if (fixture) {
       void loadFixture(fixture);
-      return;
     }
-    void fetchJobs();
-  }, [fetchJobs, loadFixture]);
-
-  useEffect(() => {
-    if (selectedJob?.jobId === "fixture") return;
-    if (!selectedJob && jobs[0]) {
-      void selectJob(jobs[0].jobId);
-    }
-  }, [jobs, selectJob, selectedJob]);
+  }, [fetchFavorites, loadFixture]);
 
   const activeSummary = useMemo(() => {
-    if (!selectedJob) return "HY-Motion Studio";
-    return `${selectedJob.status} · ${selectedJob.phase}`;
-  }, [selectedJob]);
+    if (selectedJob) return `${selectedJob.status} · ${selectedJob.phase}`;
+    const clip = comparisonClips.find((item) => item.id === selectedClipId);
+    if (clip?.source === "favorite") return "favorite selected";
+    if (clip?.source === "fixture") return "fixture selected";
+    return "HY-Motion Studio";
+  }, [comparisonClips, selectedClipId, selectedJob]);
 
   return (
     <div className="app-shell">
@@ -412,8 +482,7 @@ export default function App() {
       </header>
       <ControlsPanel />
       <ViewerWorkspace />
-      <HistoryPanel />
-      <DetailsDialog />
+      <RightPanel />
     </div>
   );
 }

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import threading
 import time
 import uuid
@@ -11,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from hymotion.api.lowvram import JobCancelled, LowVramMotionGenerator
-from hymotion.api.models import JobCreateRequest, model_to_dict
+from hymotion.api.models import FavoriteCreateRequest, JobCreateRequest, model_to_dict
 
 
 def utc_now() -> str:
@@ -23,11 +24,23 @@ class JobNotFound(KeyError):
 
 
 class JobService:
-    def __init__(self, output_root: Path | str | None = None, generator: LowVramMotionGenerator | None = None) -> None:
+    def __init__(
+        self,
+        output_root: Path | str | None = None,
+        generator: LowVramMotionGenerator | None = None,
+        favorites_root: Path | str | None = None,
+    ) -> None:
         repo_root = Path(__file__).resolve().parents[2]
         self.output_root = Path(output_root) if output_root is not None else repo_root / "output" / "api"
+        if favorites_root is not None:
+            self.favorites_root = Path(favorites_root)
+        elif self.output_root.name == "api":
+            self.favorites_root = self.output_root.parent / "favorites"
+        else:
+            self.favorites_root = self.output_root / "favorites"
         self.generator = generator or LowVramMotionGenerator()
         self._jobs: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+        self._favorites: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
         self._queue: asyncio.Queue[str] = asyncio.Queue()
         self._worker_task: Optional[asyncio.Task] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -36,8 +49,10 @@ class JobService:
 
     async def start(self) -> None:
         self.output_root.mkdir(parents=True, exist_ok=True)
+        self.favorites_root.mkdir(parents=True, exist_ok=True)
         self._loop = asyncio.get_running_loop()
-        self._load_persisted_jobs()
+        self._purge_transient_job_dirs()
+        self._load_favorites()
         self._worker_task = asyncio.create_task(self._worker(), name="hymotion-api-worker")
 
     async def stop(self) -> None:
@@ -82,6 +97,65 @@ class JobService:
             queued = [job_id for job_id, job in self._jobs.items() if job["status"] == "queued"]
             return [self._public_job(job, include_events=False, queued=queued) for job in jobs]
 
+    def list_favorites(self) -> List[Dict[str, Any]]:
+        with self._lock:
+            favorites = sorted(self._favorites.values(), key=lambda item: item.get("favoritedAt", ""), reverse=True)
+            return [self._public_favorite(item) for item in favorites]
+
+    def get_favorite(self, favorite_id: str) -> Dict[str, Any]:
+        with self._lock:
+            if favorite_id not in self._favorites:
+                raise JobNotFound(favorite_id)
+            return self._public_favorite(self._favorites[favorite_id])
+
+    def get_favorite_motion(self, favorite_id: str) -> Any:
+        with self._lock:
+            if favorite_id not in self._favorites:
+                raise JobNotFound(favorite_id)
+            motion_path = Path(self._favorites[favorite_id]["motionJsonPath"])
+        if not motion_path.exists():
+            raise FileNotFoundError(str(motion_path))
+        with motion_path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+
+    def create_favorite(self, request: FavoriteCreateRequest) -> Dict[str, Any]:
+        payload = model_to_dict(request)
+        motion = payload.pop("motion")
+        if not isinstance(motion, list):
+            raise ValueError("Favorite motion must be a JSON list of frames")
+
+        favorite_id = f"fav_{uuid.uuid4().hex[:12]}"
+        now = utc_now()
+        frame_count = payload.get("frameCount")
+        if frame_count is None:
+            frame_count = len(motion)
+
+        favorite_dir = self._favorite_dir(favorite_id)
+        motion_path = favorite_dir / "motion.json"
+        record = {
+            "id": favorite_id,
+            "favoritedAt": now,
+            "frameCount": frame_count,
+            "motionJsonPath": str(motion_path),
+            **payload,
+        }
+
+        favorite_dir.mkdir(parents=True, exist_ok=True)
+        with motion_path.open("w", encoding="utf-8") as f:
+            json.dump(motion, f, ensure_ascii=False)
+        self._persist_favorite(record)
+
+        with self._lock:
+            self._favorites[favorite_id] = record
+        return self._public_favorite(record)
+
+    def delete_favorite(self, favorite_id: str) -> None:
+        with self._lock:
+            if favorite_id not in self._favorites:
+                raise JobNotFound(favorite_id)
+            self._favorites.pop(favorite_id, None)
+        shutil.rmtree(self._favorite_dir(favorite_id), ignore_errors=True)
+
     def get_job(self, job_id: str, include_events: bool = False) -> Dict[str, Any]:
         with self._lock:
             if job_id not in self._jobs:
@@ -125,6 +199,9 @@ class JobService:
             if variation is None:
                 raise JobNotFound(f"{job_id}/{variation_id}")
             motion_path = Path(variation["motionJsonPath"])
+            motion_frames = variation.get("motionFrames")
+        if motion_frames is not None:
+            return motion_frames
         if not motion_path.exists():
             raise FileNotFoundError(str(motion_path))
         with motion_path.open("r", encoding="utf-8") as f:
@@ -181,6 +258,7 @@ class JobService:
             with self._lock:
                 job = self._jobs[job_id]
                 job["variations"] = [self._variation_public(artifact) for artifact in artifacts]
+                self._cache_job_motion_frames(job)
                 job["status"] = "succeeded"
                 job["phase"] = "succeeded"
                 job["completedAt"] = utc_now()
@@ -188,6 +266,7 @@ class JobService:
                 job["timing"]["totalSeconds"] = time.perf_counter() - start
                 self._persist(job)
             self._publish(job_id, "succeeded", {"status": "succeeded", "message": "Job complete"})
+            self._cleanup_job_files(job_id)
         except JobCancelled:
             with self._lock:
                 job = self._jobs[job_id]
@@ -198,6 +277,7 @@ class JobService:
                 job["timing"]["totalSeconds"] = time.perf_counter() - start
                 self._persist(job)
             self._publish(job_id, "cancelled", {"status": "cancelled", "message": "Job cancelled"})
+            self._cleanup_job_files(job_id)
         except Exception as exc:
             with self._lock:
                 job = self._jobs[job_id]
@@ -209,6 +289,7 @@ class JobService:
                 job["timing"]["totalSeconds"] = time.perf_counter() - start
                 self._persist(job)
             self._publish(job_id, "failed", {"status": "failed", "message": str(exc)})
+            self._cleanup_job_files(job_id)
 
     def _publish(self, job_id: str, event_type: str, payload: Dict[str, Any]) -> None:
         event = {
@@ -263,28 +344,75 @@ class JobService:
     def _job_json_path(self, job_id: str) -> Path:
         return self._job_dir(job_id) / "job.json"
 
+    def _favorite_dir(self, favorite_id: str) -> Path:
+        return self.favorites_root / favorite_id
+
+    def _favorite_json_path(self, favorite_id: str) -> Path:
+        return self._favorite_dir(favorite_id) / "favorite.json"
+
     def _persist(self, job: Dict[str, Any]) -> None:
         path = self._job_json_path(job["jobId"])
         path.parent.mkdir(parents=True, exist_ok=True)
+        persisted = self._job_without_motion_frames(job)
         with path.open("w", encoding="utf-8") as f:
-            json.dump(job, f, indent=2, ensure_ascii=False)
+            json.dump(persisted, f, indent=2, ensure_ascii=False)
 
-    def _load_persisted_jobs(self) -> None:
+    def _persist_favorite(self, favorite: Dict[str, Any]) -> None:
+        path = self._favorite_json_path(favorite["id"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        public = self._public_favorite(favorite)
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(public, f, indent=2, ensure_ascii=False)
+
+    def _purge_transient_job_dirs(self) -> None:
         if not self.output_root.exists():
             return
+        for path in self.output_root.glob("job_*"):
+            if path.is_dir():
+                shutil.rmtree(path, ignore_errors=True)
+
+    def _load_favorites(self) -> None:
+        if not self.favorites_root.exists():
+            return
         with self._lock:
-            for path in sorted(self.output_root.glob("job_*/job.json")):
+            for path in sorted(self.favorites_root.glob("fav_*/favorite.json")):
                 try:
                     with path.open("r", encoding="utf-8") as f:
-                        job = json.load(f)
-                    if job.get("status") in {"queued", "running"}:
-                        job["status"] = "failed"
-                        job["phase"] = "failed"
-                        job["error"] = "Server stopped before the job finished"
-                        job["completedAt"] = utc_now()
-                    self._jobs[job["jobId"]] = job
+                        favorite = json.load(f)
+                    favorite_id = favorite["id"]
+                    favorite["motionJsonPath"] = str(self._favorite_dir(favorite_id) / "motion.json")
+                    self._favorites[favorite_id] = favorite
                 except Exception:
                     continue
+
+    def _cleanup_job_files(self, job_id: str) -> None:
+        shutil.rmtree(self._job_dir(job_id), ignore_errors=True)
+
+    @staticmethod
+    def _cache_job_motion_frames(job: Dict[str, Any]) -> None:
+        for variation in job.get("variations", []):
+            if variation.get("motionFrames") is not None:
+                continue
+            motion_path = variation.get("motionJsonPath")
+            if not motion_path:
+                continue
+            path = Path(motion_path)
+            if not path.exists():
+                continue
+            try:
+                with path.open("r", encoding="utf-8") as f:
+                    variation["motionFrames"] = json.load(f)
+            except Exception:
+                continue
+
+    @staticmethod
+    def _job_without_motion_frames(job: Dict[str, Any]) -> Dict[str, Any]:
+        persisted = dict(job)
+        persisted["variations"] = [
+            {key: value for key, value in variation.items() if key != "motionFrames"}
+            for variation in job.get("variations", [])
+        ]
+        return persisted
 
     @staticmethod
     def _variation_public(artifact) -> Dict[str, Any]:
@@ -335,3 +463,25 @@ class JobService:
         if include_events:
             public["events"] = job.get("events", [])
         return public
+
+    @staticmethod
+    def _public_favorite(favorite: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "id": favorite["id"],
+            "favoritedAt": favorite["favoritedAt"],
+            "jobId": favorite.get("jobId"),
+            "variationId": favorite["variationId"],
+            "variationIndex": favorite.get("variationIndex", 0),
+            "prompt": favorite["prompt"],
+            "durationSeconds": favorite["durationSeconds"],
+            "cfgScale": favorite["cfgScale"],
+            "steps": favorite.get("steps", 50),
+            "variationCount": favorite.get("variationCount", 1),
+            "seed": favorite["seed"],
+            "seconds": favorite.get("seconds"),
+            "frameCount": favorite.get("frameCount"),
+            "baseFilename": favorite.get("baseFilename"),
+            "jobCreatedAt": favorite.get("jobCreatedAt"),
+            "jobStartedAt": favorite.get("jobStartedAt"),
+            "jobCompletedAt": favorite.get("jobCompletedAt"),
+        }

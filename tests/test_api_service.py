@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import threading
 import time
 import tempfile
@@ -10,7 +11,7 @@ from types import SimpleNamespace
 from typing import Any, Dict, List
 
 from hymotion.api.lowvram import JobCancelled, LowVramMotionGenerator
-from hymotion.api.models import JobCreateRequest
+from hymotion.api.models import FavoriteCreateRequest, JobCreateRequest
 from hymotion.api.service import JobService
 
 
@@ -54,6 +55,27 @@ class BlockingGenerator:
         raise JobCancelled()
 
 
+class MotionWritingGenerator:
+    def run_job(self, request: Dict[str, Any], job_dir: Path, emit, should_cancel) -> List[SimpleNamespace]:
+        job_dir.mkdir(parents=True, exist_ok=True)
+        motion_path = job_dir / "var_01_motion.json"
+        with motion_path.open("w", encoding="utf-8") as f:
+            json.dump([[{"id": 0, "gender": "neutral", "Rh": [[0, 0, 0]], "Th": [[0, 0, 0]], "poses": [[]], "shapes": [[]]}]], f)
+        artifact = SimpleNamespace(
+            id="var_01",
+            index=0,
+            seed=123,
+            seconds=0.01,
+            frame_count=1,
+            base_filename="fixture_var_01",
+            npz_path=job_dir / "fixture_var_01.npz",
+            meta_path=job_dir / "fixture_var_01_meta.json",
+            motion_json_path=motion_path,
+        )
+        emit("variation_done", {"variation": JobService._variation_public(artifact)})
+        return [artifact]
+
+
 async def wait_for_status(service: JobService, job_id: str, status: str) -> Dict[str, Any]:
     for _ in range(200):
         job = service.get_job(job_id, include_events=True)
@@ -89,6 +111,19 @@ class JobServiceTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 await service.stop()
 
+    async def test_completed_job_cleans_files_but_keeps_motion_in_memory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service = JobService(output_root=tmp, generator=MotionWritingGenerator())
+            await service.start()
+            try:
+                created = await service.submit(JobCreateRequest(prompt="walk", variationCount=1))
+                job = await wait_for_status(service, created["jobId"], "succeeded")
+                self.assertFalse((Path(tmp) / created["jobId"]).exists())
+                motion = service.get_motion(created["jobId"], job["variations"][0]["id"])
+                self.assertEqual(len(motion), 1)
+            finally:
+                await service.stop()
+
     async def test_running_job_cancel_is_checked_by_worker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             generator = BlockingGenerator()
@@ -110,6 +145,54 @@ class JobServiceTests(unittest.IsolatedAsyncioTestCase):
             job = service.cancel(created["jobId"])
             self.assertEqual(job["status"], "cancelled")
             self.assertEqual(job["phase"], "cancelled")
+
+    async def test_startup_purges_old_transient_jobs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            old_job = Path(tmp) / "job_old"
+            old_job.mkdir()
+            (old_job / "job.json").write_text("{}", encoding="utf-8")
+            service = JobService(output_root=tmp, generator=SuccessGenerator())
+            await service.start()
+            try:
+                self.assertFalse(old_job.exists())
+                self.assertEqual(service.list_jobs(), [])
+            finally:
+                await service.stop()
+
+    async def test_favorites_persist_and_can_be_deleted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service = JobService(output_root=Path(tmp) / "api", generator=SuccessGenerator())
+            await service.start()
+            try:
+                favorite = service.create_favorite(
+                    FavoriteCreateRequest(
+                        jobId="job_1",
+                        variationId="var_01",
+                        variationIndex=0,
+                        prompt="walk",
+                        durationSeconds=4,
+                        cfgScale=5,
+                        steps=50,
+                        variationCount=1,
+                        seed=42,
+                        frameCount=1,
+                        motion=[[{"id": 0}]],
+                    )
+                )
+                favorite_id = favorite["id"]
+                self.assertEqual(service.get_favorite_motion(favorite_id), [[{"id": 0}]])
+            finally:
+                await service.stop()
+
+            restarted = JobService(output_root=Path(tmp) / "api", generator=SuccessGenerator())
+            await restarted.start()
+            try:
+                favorites = restarted.list_favorites()
+                self.assertEqual(len(favorites), 1)
+                restarted.delete_favorite(favorites[0]["id"])
+                self.assertEqual(restarted.list_favorites(), [])
+            finally:
+                await restarted.stop()
 
 
 class SeedResolutionTests(unittest.TestCase):

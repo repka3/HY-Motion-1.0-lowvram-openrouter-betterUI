@@ -178,9 +178,47 @@ input:focus {
   height: 30px;
 }
 
+.icon-button.tiny {
+  width: 24px;
+  height: 24px;
+}
+
+.icon-button.selected {
+  border-color: rgba(108, 191, 132, 0.75);
+  color: #8bd59e;
+}
+
 .icon-button.danger:not(:disabled) {
   border-color: #7b3a32;
   color: #ff9c8e;
+}
+
+.control-field {
+  position: relative;
+}
+
+.field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.field-actions {
+  display: inline-flex;
+  gap: 5px;
+}
+
+.help-popover {
+  display: block;
+  border: 1px solid #4a473f;
+  border-radius: 6px;
+  background: #292722;
+  color: #ded7cc;
+  padding: 9px 10px;
+  font-size: 11px;
+  line-height: 1.4;
+  font-weight: 520;
 }
 
 .workspace {
@@ -244,26 +282,54 @@ input:focus {
 .viewer-label {
   border: 1px solid rgba(238, 234, 225, 0.2);
   border-radius: 6px;
-  min-width: 74px;
+  min-width: 108px;
   height: 30px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
   background: rgba(25, 24, 22, 0.74);
   color: #eeeae1;
-  cursor: pointer;
   backdrop-filter: blur(8px);
   font-size: 11px;
   font-weight: 720;
+  overflow: hidden;
 }
 
-.viewer-label b {
+.viewer-label-main,
+.viewer-star {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.viewer-label-main {
+  min-width: 0;
+  flex: 1;
+  gap: 7px;
+  padding: 0 7px 0 10px;
+}
+
+.viewer-label-main b {
   max-width: 52px;
   overflow: hidden;
   text-overflow: ellipsis;
   color: #bcb5aa;
   font-variant-numeric: tabular-nums;
+}
+
+.viewer-star {
+  width: 30px;
+  border-left: 1px solid rgba(238, 234, 225, 0.15);
+  color: #aaa39a;
+}
+
+.viewer-star.active {
+  color: #8bd59e;
 }
 
 .viewer-label.selected {
@@ -298,77 +364,121 @@ input:focus {
   font-variant-numeric: tabular-nums;
 }
 
-.job-list {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  max-height: 34vh;
-  overflow: auto;
-  padding-right: 2px;
+.tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 14px;
 }
 
-.job-row,
-.variation-row {
+.tabs button {
+  border: 1px solid #3c3933;
+  border-radius: 6px;
+  height: 34px;
+  background: #292722;
+  color: #bcb5aa;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.tabs button.active {
+  border-color: rgba(108, 191, 132, 0.75);
+  color: #f3efe6;
+}
+
+.tabs span {
+  color: #8f8980;
+  margin-left: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.favorite-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.favorite-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.favorite-main {
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
-  min-height: 42px;
+  min-height: 58px;
   width: 100%;
-  display: grid;
-  align-items: center;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding: 8px 9px;
   cursor: pointer;
   color: #eeeae1;
+  text-align: left;
 }
 
-.job-row {
-  grid-template-columns: 10px minmax(0, 1fr) 56px;
-  gap: 8px;
-  padding: 7px 8px;
-}
-
-.job-row.selected,
-.variation-row.selected {
+.favorite-main:hover {
   border-color: #5c564d;
   background: #292722;
 }
 
-.dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #8f8980;
+.favorite-main span {
+  color: #e9e0d3;
+  font-size: 12px;
+  font-weight: 720;
 }
 
-.dot.good {
-  background: #6cbf84;
-}
-
-.dot.bad {
-  background: #dd7060;
-}
-
-.dot.active {
-  background: #e7b75f;
-}
-
-.dot.muted {
-  background: #8f8980;
-}
-
-.job-text {
+.favorite-main b {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  text-align: left;
-  font-size: 12px;
+  color: #bcb5aa;
+  font-size: 11px;
+  font-weight: 560;
 }
 
-.job-time {
-  color: #aaa39a;
-  text-align: right;
-  font-size: 11px;
+.favorite-main small {
+  color: #8f8980;
+  font-size: 10px;
   font-variant-numeric: tabular-nums;
+}
+
+.info-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.info-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.info-head span {
+  display: block;
+  color: #aaa39a;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.info-head b {
+  display: block;
+  margin-top: 3px;
+  color: #eeeae1;
+  font-size: 16px;
+}
+
+.info-actions {
+  display: inline-flex;
+  gap: 7px;
 }
 
 .detail-block {
@@ -397,33 +507,6 @@ input:focus {
   font-weight: 690;
 }
 
-.variation-list {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  margin-top: 16px;
-}
-
-.variation-row {
-  grid-template-columns: 42px minmax(0, 1fr) 52px;
-  padding: 8px 9px;
-  text-align: left;
-  font-size: 12px;
-}
-
-.variation-row b {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: #e9e0d3;
-  font-weight: 650;
-}
-
-.variation-row span:last-child {
-  color: #aaa39a;
-  text-align: right;
-}
-
 .quiet-line,
 .error-line {
   min-height: 34px;
@@ -437,55 +520,14 @@ input:focus {
   color: #ff9c8e;
 }
 
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  display: grid;
-  place-items: center;
-  padding: 20px;
-  background: rgba(12, 12, 10, 0.58);
-  backdrop-filter: blur(6px);
-}
-
-.details-modal {
-  width: min(680px, 100%);
-  max-height: min(780px, calc(100vh - 40px));
-  overflow: auto;
-  border: 1px solid #4a473f;
-  border-radius: 8px;
-  background: #20201d;
-  box-shadow: 0 24px 72px rgba(0, 0, 0, 0.38);
-  padding: 18px;
-}
-
-.modal-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.modal-head span {
-  display: block;
-  color: #aaa39a;
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.modal-head b {
-  display: block;
-  margin-top: 3px;
-  color: #eeeae1;
-  font-size: 18px;
-}
-
 .modal-section {
   border-top: 1px solid #312f2a;
   border-bottom: 1px solid #312f2a;
   padding: 14px 0;
-  margin-bottom: 14px;
+}
+
+.inline-section {
+  margin: 0;
 }
 
 .section-label {

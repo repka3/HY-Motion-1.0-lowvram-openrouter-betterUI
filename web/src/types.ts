@@ -31,6 +31,45 @@ export interface VariationSummary {
   baseFilename?: string;
 }
 
+export interface FavoriteSummary {
+  id: string;
+  favoritedAt: string;
+  jobId?: string | null;
+  variationId: string;
+  variationIndex: number;
+  prompt: string;
+  durationSeconds: number;
+  cfgScale: number;
+  steps: number;
+  variationCount: number;
+  seed: number;
+  seconds?: number | null;
+  frameCount?: number | null;
+  baseFilename?: string | null;
+  jobCreatedAt?: string | null;
+  jobStartedAt?: string | null;
+  jobCompletedAt?: string | null;
+}
+
+export interface FavoriteCreateRequest {
+  jobId?: string | null;
+  variationId: string;
+  variationIndex: number;
+  prompt: string;
+  durationSeconds: number;
+  cfgScale: number;
+  steps: number;
+  variationCount: number;
+  seed: number;
+  seconds?: number | null;
+  frameCount?: number | null;
+  baseFilename?: string | null;
+  jobCreatedAt?: string | null;
+  jobStartedAt?: string | null;
+  jobCompletedAt?: string | null;
+  motion: MotionFrames;
+}
+
 export interface JobSummary {
   jobId: string;
   status: JobStatus;
@@ -76,11 +115,25 @@ export type MotionFrame = MotionActorFrame[];
 export type MotionFrames = MotionFrame[];
 
 export interface ComparisonClip {
+  id: string;
+  source: "job" | "favorite" | "fixture";
+  jobId?: string | null;
+  favoriteId?: string | null;
   variationId: string;
   variationIndex: number;
+  prompt: string;
+  durationSeconds: number;
+  cfgScale: number;
+  steps: number;
+  variationCount: number;
   seed: number;
   frames: MotionFrames;
   frameCount: number;
-  seconds?: number;
-  baseFilename?: string;
+  seconds?: number | null;
+  baseFilename?: string | null;
+  status?: JobStatus;
+  jobCreatedAt?: string | null;
+  jobStartedAt?: string | null;
+  jobCompletedAt?: string | null;
+  favoritedAt?: string | null;
 }

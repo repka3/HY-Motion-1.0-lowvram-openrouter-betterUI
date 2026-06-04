@@ -1,18 +1,39 @@
 import { create } from "zustand";
 
-import { cancelJob, createJob, createJobSocket, getJob, getMotion, listJobs } from "./api";
-import type { ComparisonClip, JobDetail, JobEvent, JobRequest, JobSummary, MotionFrames, VariationSummary } from "./types";
+import {
+  cancelJob,
+  createFavorite,
+  createJob,
+  createJobSocket,
+  deleteFavorite,
+  getFavoriteMotion,
+  getJob,
+  getMotion,
+  listFavorites
+} from "./api";
+import type {
+  ComparisonClip,
+  FavoriteCreateRequest,
+  FavoriteSummary,
+  JobDetail,
+  JobEvent,
+  JobRequest,
+  MotionFrames,
+  VariationSummary
+} from "./types";
 
 let activeSocket: WebSocket | null = null;
 let activeSelectionId: string | null = null;
 const loadingMotionKeys = new Set<string>();
 
+export type RightPanelTab = "info" | "starred";
+
 interface StudioState {
-  jobs: JobSummary[];
   selectedJob: JobDetail | null;
-  selectedVariationId: string | null;
-  detailVariationId: string | null;
+  selectedClipId: string | null;
+  rightTab: RightPanelTab;
   comparisonClips: ComparisonClip[];
+  favorites: FavoriteSummary[];
   currentFrame: number;
   isPlaying: boolean;
   speed: number;
@@ -22,13 +43,16 @@ interface StudioState {
   submitting: boolean;
   viewerReady: boolean;
   error: string | null;
-  fetchJobs: () => Promise<void>;
+  fetchFavorites: () => Promise<void>;
   submitJob: (request: JobRequest) => Promise<void>;
   refreshSelectedJob: () => Promise<void>;
   selectJob: (jobId: string) => Promise<void>;
   loadComparisonVariation: (jobId: string, variation: VariationSummary) => Promise<void>;
-  openVariationDetails: (variationId: string) => void;
-  closeVariationDetails: () => void;
+  selectClip: (clipId: string) => void;
+  setRightTab: (tab: RightPanelTab) => void;
+  toggleFavorite: (clipId: string) => Promise<void>;
+  loadFavorite: (favoriteId: string) => Promise<void>;
+  deleteFavoriteById: (favoriteId: string) => Promise<void>;
   cancelSelectedJob: () => Promise<void>;
   setCurrentFrame: (frame: number) => void;
   setPlaying: (playing: boolean) => void;
@@ -68,32 +92,114 @@ function phaseLabel(event: JobEvent | JobDetail | null): string {
   return "Idle";
 }
 
-async function loadJobIntoState(jobId: string): Promise<JobDetail> {
-  return getJob(jobId);
+function clipIdForJob(jobId: string, variationId: string): string {
+  return `${jobId}:${variationId}`;
 }
 
 function motionKey(jobId: string, variationId: string): string {
   return `${jobId}:${variationId}`;
 }
 
-function clipFromVariation(variation: VariationSummary, frames: MotionFrames): ComparisonClip {
+function matchingFavorite(
+  favorites: FavoriteSummary[],
+  jobId: string | null | undefined,
+  variationId: string,
+  seed: number
+): FavoriteSummary | undefined {
+  return favorites.find(
+    (favorite) => favorite.jobId === jobId && favorite.variationId === variationId && favorite.seed === seed
+  );
+}
+
+function clipFromVariation(
+  job: JobDetail,
+  variation: VariationSummary,
+  frames: MotionFrames,
+  favorites: FavoriteSummary[]
+): ComparisonClip {
+  const favorite = matchingFavorite(favorites, job.jobId, variation.id, variation.seed);
   return {
+    id: clipIdForJob(job.jobId, variation.id),
+    source: "job",
+    jobId: job.jobId,
+    favoriteId: favorite?.id ?? null,
     variationId: variation.id,
     variationIndex: variation.index,
+    prompt: job.request.prompt,
+    durationSeconds: job.request.durationSeconds,
+    cfgScale: job.request.cfgScale,
+    steps: job.request.steps ?? 50,
+    variationCount: job.request.variationCount,
     seed: variation.seed,
     frames,
     frameCount: frames.length,
     seconds: variation.seconds,
-    baseFilename: variation.baseFilename
+    baseFilename: variation.baseFilename,
+    status: variation.status,
+    jobCreatedAt: job.createdAt,
+    jobStartedAt: job.startedAt,
+    jobCompletedAt: job.completedAt,
+    favoritedAt: favorite?.favoritedAt ?? null
   };
 }
 
+function clipFromFavorite(favorite: FavoriteSummary, frames: MotionFrames): ComparisonClip {
+  return {
+    id: favorite.id,
+    source: "favorite",
+    jobId: favorite.jobId ?? null,
+    favoriteId: favorite.id,
+    variationId: favorite.variationId,
+    variationIndex: favorite.variationIndex,
+    prompt: favorite.prompt,
+    durationSeconds: favorite.durationSeconds,
+    cfgScale: favorite.cfgScale,
+    steps: favorite.steps,
+    variationCount: favorite.variationCount,
+    seed: favorite.seed,
+    frames,
+    frameCount: frames.length,
+    seconds: favorite.seconds,
+    baseFilename: favorite.baseFilename,
+    status: "succeeded",
+    jobCreatedAt: favorite.jobCreatedAt,
+    jobStartedAt: favorite.jobStartedAt,
+    jobCompletedAt: favorite.jobCompletedAt,
+    favoritedAt: favorite.favoritedAt
+  };
+}
+
+function favoriteRequestFromClip(clip: ComparisonClip): FavoriteCreateRequest {
+  return {
+    jobId: clip.jobId ?? null,
+    variationId: clip.variationId,
+    variationIndex: clip.variationIndex,
+    prompt: clip.prompt,
+    durationSeconds: clip.durationSeconds,
+    cfgScale: clip.cfgScale,
+    steps: clip.steps,
+    variationCount: clip.variationCount,
+    seed: clip.seed,
+    seconds: clip.seconds,
+    frameCount: clip.frameCount,
+    baseFilename: clip.baseFilename,
+    jobCreatedAt: clip.jobCreatedAt,
+    jobStartedAt: clip.jobStartedAt,
+    jobCompletedAt: clip.jobCompletedAt,
+    motion: clip.frames
+  };
+}
+
+async function loadJobIntoState(jobId: string): Promise<JobDetail> {
+  return getJob(jobId);
+}
+
 export const useStudioStore = create<StudioState>((set, get) => ({
-  jobs: [],
   selectedJob: null,
-  selectedVariationId: null,
-  detailVariationId: null,
+  selectedClipId: null,
+  rightTab: "info",
   comparisonClips: [],
+  favorites: [],
   currentFrame: 0,
   isPlaying: false,
   speed: 1,
@@ -104,13 +210,36 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   viewerReady: false,
   error: null,
 
-  fetchJobs: async () => {
-    const jobs = await listJobs();
-    set({ jobs });
+  fetchFavorites: async () => {
+    const favorites = await listFavorites();
+    set((state) => ({
+      favorites,
+      comparisonClips: state.comparisonClips.map((clip) => {
+        const favorite = matchingFavorite(favorites, clip.jobId, clip.variationId, clip.seed);
+        if (!favorite && clip.source !== "favorite") {
+          return { ...clip, favoriteId: null, favoritedAt: null };
+        }
+        return {
+          ...clip,
+          favoriteId: favorite?.id ?? clip.favoriteId,
+          favoritedAt: favorite?.favoritedAt ?? clip.favoritedAt
+        };
+      })
+    }));
   },
 
   submitJob: async (request) => {
-    set({ submitting: true, error: null, statusLine: "Submitting" });
+    set({
+      submitting: true,
+      error: null,
+      statusLine: "Submitting",
+      selectedJob: null,
+      selectedClipId: null,
+      comparisonClips: [],
+      currentFrame: 0,
+      isPlaying: false,
+      rightTab: "info"
+    });
     try {
       const jobId = await createJob(request);
       await get().selectJob(jobId);
@@ -118,7 +247,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       set({ error: error instanceof Error ? error.message : String(error), statusLine: "Submit failed" });
     } finally {
       set({ submitting: false });
-      await get().fetchJobs();
+      await get().fetchFavorites();
     }
   },
 
@@ -137,12 +266,12 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     set({
       loading: true,
       error: null,
-      selectedVariationId: null,
-      detailVariationId: null,
+      selectedClipId: null,
       comparisonClips: [],
       currentFrame: 0,
       isPlaying: false,
-      viewerReady: false
+      viewerReady: false,
+      rightTab: "info"
     });
     try {
       const job = await loadJobIntoState(jobId);
@@ -155,7 +284,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         const fresh = await loadJobIntoState(jobId);
         if (activeSelectionId !== jobId || get().selectedJob?.jobId !== jobId) return;
         set({ selectedJob: fresh });
-        await get().fetchJobs();
         if (event.type === "variation_done" && event.variation?.id) {
           const variation = fresh.variations.find((item) => item.id === event.variation?.id) ?? event.variation;
           await get().loadComparisonVariation(jobId, variation);
@@ -174,18 +302,21 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
   loadComparisonVariation: async (jobId, variation) => {
     const key = motionKey(jobId, variation.id);
-    if (loadingMotionKeys.has(key) || get().comparisonClips.some((clip) => clip.variationId === variation.id)) return;
+    const clipId = clipIdForJob(jobId, variation.id);
+    if (loadingMotionKeys.has(key) || get().comparisonClips.some((clip) => clip.id === clipId)) return;
     loadingMotionKeys.add(key);
     try {
+      const selectedJob = get().selectedJob;
+      if (!selectedJob || selectedJob.jobId !== jobId) return;
       const frames = await getMotion(jobId, variation.id);
       if (get().selectedJob?.jobId !== jobId) return;
-      const clip = clipFromVariation(variation, frames);
+      const freshJob = get().selectedJob ?? selectedJob;
+      const clip = clipFromVariation(freshJob, variation, frames, get().favorites);
       set((state) => {
         const oldTotalFrames = Math.max(0, ...state.comparisonClips.map((item) => item.frames.length));
-        const comparisonClips = [
-          ...state.comparisonClips.filter((item) => item.variationId !== clip.variationId),
-          clip
-        ].sort((left, right) => left.variationIndex - right.variationIndex);
+        const comparisonClips = [...state.comparisonClips.filter((item) => item.id !== clip.id), clip].sort(
+          (left, right) => left.variationIndex - right.variationIndex
+        );
         const newTotalFrames = Math.max(0, ...comparisonClips.map((item) => item.frames.length));
         const currentFrame =
           oldTotalFrames > 1 && newTotalFrames > 1
@@ -197,7 +328,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         return {
           comparisonClips,
           currentFrame,
-          selectedVariationId: state.selectedVariationId ?? variation.id,
+          selectedClipId: state.selectedClipId ?? clip.id,
           viewerReady: false
         };
       });
@@ -210,15 +341,84 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     }
   },
 
-  openVariationDetails: (variationId) => set({ selectedVariationId: variationId, detailVariationId: variationId }),
-  closeVariationDetails: () => set({ detailVariationId: null }),
+  selectClip: (clipId) => set({ selectedClipId: clipId, rightTab: "info" }),
+  setRightTab: (tab) => set({ rightTab: tab }),
+
+  toggleFavorite: async (clipId) => {
+    const clip = get().comparisonClips.find((item) => item.id === clipId);
+    if (!clip) return;
+    set({ error: null });
+    try {
+      if (clip.favoriteId) {
+        const favoriteId = clip.favoriteId;
+        await deleteFavorite(favoriteId);
+        set((state) => ({
+          favorites: state.favorites.filter((favorite) => favorite.id !== favoriteId),
+          comparisonClips: state.comparisonClips.map((item) =>
+            item.favoriteId === favoriteId ? { ...item, favoriteId: null, favoritedAt: null } : item
+          )
+        }));
+        return;
+      }
+
+      const favorite = await createFavorite(favoriteRequestFromClip(clip));
+      set((state) => ({
+        favorites: [favorite, ...state.favorites.filter((item) => item.id !== favorite.id)],
+        comparisonClips: state.comparisonClips.map((item) =>
+          item.id === clip.id ? { ...item, favoriteId: favorite.id, favoritedAt: favorite.favoritedAt } : item
+        )
+      }));
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : String(error) });
+    }
+  },
+
+  loadFavorite: async (favoriteId) => {
+    const favorite = get().favorites.find((item) => item.id === favoriteId);
+    if (!favorite) return;
+    set({ loading: true, error: null, rightTab: "info" });
+    try {
+      const frames = await getFavoriteMotion(favoriteId);
+      const clip = clipFromFavorite(favorite, frames);
+      activeSocket?.close();
+      activeSelectionId = null;
+      loadingMotionKeys.clear();
+      set({
+        selectedJob: null,
+        comparisonClips: [clip],
+        selectedClipId: clip.id,
+        currentFrame: 0,
+        isPlaying: false,
+        viewerReady: false,
+        statusLine: `${frames.length} favorite frames loaded`
+      });
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : String(error) });
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  deleteFavoriteById: async (favoriteId) => {
+    set({ error: null });
+    try {
+      await deleteFavorite(favoriteId);
+      set((state) => ({
+        favorites: state.favorites.filter((favorite) => favorite.id !== favoriteId),
+        comparisonClips: state.comparisonClips.map((clip) =>
+          clip.favoriteId === favoriteId ? { ...clip, favoriteId: null, favoritedAt: null } : clip
+        )
+      }));
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : String(error) });
+    }
+  },
 
   cancelSelectedJob: async () => {
     const selectedJob = get().selectedJob;
     if (!selectedJob) return;
     const job = await cancelJob(selectedJob.jobId);
     set({ selectedJob: job, statusLine: phaseLabel(job) });
-    await get().fetchJobs();
   },
 
   setCurrentFrame: (frame) => set({ currentFrame: frame }),
@@ -235,39 +435,39 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       loading: true,
       error: null,
       comparisonClips: [],
-      detailVariationId: null,
       currentFrame: 0,
-      selectedVariationId: "fixture"
+      selectedClipId: "fixture",
+      rightTab: "info"
     });
     try {
       const response = await fetch(path);
       if (!response.ok) throw new Error(response.statusText);
       const frames = (await response.json()) as MotionFrames;
-      const variation: VariationSummary = { id: "fixture", index: 0, seed: 0, status: "succeeded", frameCount: frames.length };
       set({
-        comparisonClips: [clipFromVariation(variation, frames)],
-        selectedJob: {
-          jobId: "fixture",
-          status: "succeeded",
-          phase: "succeeded",
-          request: {
+        comparisonClips: [
+          {
+            id: "fixture",
+            source: "fixture",
+            jobId: "fixture",
+            favoriteId: null,
+            variationId: "fixture",
+            variationIndex: 0,
             prompt: "fixture motion",
             durationSeconds: 4,
             cfgScale: 5,
             steps: 50,
-            variationCount: 1
-          },
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          startedAt: null,
-          completedAt: new Date().toISOString(),
-          queuePosition: null,
-          cancelRequested: false,
-          error: null,
-          timing: {},
-          variations: [variation],
-          events: []
-        },
+            variationCount: 1,
+            seed: 0,
+            frames,
+            frameCount: frames.length,
+            status: "succeeded",
+            jobCreatedAt: new Date().toISOString(),
+            jobStartedAt: null,
+            jobCompletedAt: new Date().toISOString(),
+            favoritedAt: null
+          }
+        ],
+        selectedJob: null,
         statusLine: `${frames.length} fixture frames loaded`
       });
     } catch (error) {

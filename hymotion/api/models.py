@@ -63,6 +63,25 @@ class JobDetail(JobSummary):
     events: List[Dict[str, Any]] = Field(default_factory=list)
 
 
+class FavoriteCreateRequest(BaseModel):
+    jobId: Optional[str] = None
+    variationId: str
+    variationIndex: int = 0
+    prompt: str = Field(..., min_length=1, max_length=2000)
+    durationSeconds: float = Field(4.0, ge=0.5, le=20.0)
+    cfgScale: float = Field(5.0, ge=1.0, le=20.0)
+    steps: int = Field(50, ge=1, le=200)
+    variationCount: int = Field(1, ge=1, le=16)
+    seed: int
+    seconds: Optional[float] = None
+    frameCount: Optional[int] = None
+    baseFilename: Optional[str] = None
+    jobCreatedAt: Optional[str] = None
+    jobStartedAt: Optional[str] = None
+    jobCompletedAt: Optional[str] = None
+    motion: Any
+
+
 def model_to_dict(model: BaseModel) -> Dict[str, Any]:
     if hasattr(model, "model_dump"):
         return model.model_dump()

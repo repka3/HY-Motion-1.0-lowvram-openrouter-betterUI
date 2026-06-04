@@ -1,4 +1,4 @@
-import type { JobDetail, JobRequest, JobSummary, MotionFrames } from "./types";
+import type { FavoriteCreateRequest, FavoriteSummary, JobDetail, JobRequest, JobSummary, MotionFrames } from "./types";
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -34,6 +34,25 @@ export function cancelJob(jobId: string): Promise<JobDetail> {
 
 export function getMotion(jobId: string, variationId: string): Promise<MotionFrames> {
   return requestJson<MotionFrames>(`/api/jobs/${jobId}/variations/${variationId}/motion`);
+}
+
+export function listFavorites(): Promise<FavoriteSummary[]> {
+  return requestJson<FavoriteSummary[]>("/api/favorites");
+}
+
+export function createFavorite(request: FavoriteCreateRequest): Promise<FavoriteSummary> {
+  return requestJson<FavoriteSummary>("/api/favorites", {
+    method: "POST",
+    body: JSON.stringify(request)
+  });
+}
+
+export function getFavoriteMotion(favoriteId: string): Promise<MotionFrames> {
+  return requestJson<MotionFrames>(`/api/favorites/${favoriteId}/motion`);
+}
+
+export function deleteFavorite(favoriteId: string): Promise<{ ok: boolean }> {
+  return requestJson<{ ok: boolean }>(`/api/favorites/${favoriteId}`, { method: "DELETE" });
 }
 
 export function createJobSocket(jobId: string): WebSocket {

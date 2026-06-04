@@ -1,5 +1,6 @@
 import { Grid, Html, OrbitControls } from "@react-three/drei";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
+import { Star } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
@@ -9,14 +10,15 @@ import { disposeWoodenModel, loadWoodenModel, type WoodenModel } from "./woodenM
 
 interface MotionViewerProps {
   clips: ComparisonClip[];
-  selectedVariationId: string | null;
+  selectedClipId: string | null;
   currentFrame: number;
   isPlaying: boolean;
   speed: number;
   resetToken: number;
   onFrameChange: (frame: number) => void;
   onReadyChange?: (ready: boolean) => void;
-  onClipClick?: (variationId: string) => void;
+  onClipClick?: (clipId: string) => void;
+  onFavoriteClick?: (clipId: string) => void;
 }
 
 function computeOffsets(count: number, spacing: number): number[] {
@@ -195,14 +197,15 @@ function CameraRig({ resetToken, clipCount }: { resetToken: number; clipCount: n
 
 function SceneContent({
   clips,
-  selectedVariationId,
+  selectedClipId,
   currentFrame,
   isPlaying,
   speed,
   resetToken,
   onFrameChange,
   onReadyChange,
-  onClipClick
+  onClipClick,
+  onFavoriteClick
 }: MotionViewerProps) {
   const totalFrames = useMemo(() => Math.max(0, ...clips.map((clip) => clip.frames.length)), [clips]);
   const expectedActorCount = useMemo(
@@ -255,10 +258,11 @@ function SceneContent({
         const frameIndex = timelineFrameForClip(clip, currentFrame, totalFrames);
         const frame = clip.frames[frameIndex] ?? [];
         const actorOffsets = computeOffsets(frame.length, 0.72);
-        const selected = selectedVariationId === clip.variationId;
+        const selected = selectedClipId === clip.id;
+        const favorited = Boolean(clip.favoriteId);
 
         return (
-          <group key={clip.variationId}>
+          <group key={clip.id}>
             {selected && (
               <mesh position={[clipOffset, 0.018, 0]} rotation={[-Math.PI / 2, 0, 0]}>
                 <ringGeometry args={[0.62, 0.78, 64]} />
@@ -266,13 +270,25 @@ function SceneContent({
               </mesh>
             )}
             <Html position={[clipOffset, 2.18, 0]} center distanceFactor={9}>
-              <button className={`viewer-label ${selected ? "selected" : ""}`} onClick={() => onClipClick?.(clip.variationId)}>
-                <span>V{clip.variationIndex + 1}</span>
-                <b>{clip.seed}</b>
-              </button>
+              <div className={`viewer-label ${selected ? "selected" : ""}`}>
+                <button className="viewer-label-main" onClick={() => onClipClick?.(clip.id)}>
+                  <span>V{clip.variationIndex + 1}</span>
+                  <b>{clip.seed}</b>
+                </button>
+                <button
+                  className={`viewer-star ${favorited ? "active" : ""}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onFavoriteClick?.(clip.id);
+                  }}
+                  aria-label={favorited ? "Remove favorite" : "Favorite generation"}
+                >
+                  <Star size={14} fill={favorited ? "currentColor" : "none"} />
+                </button>
+              </div>
             </Html>
             {frame.map((actor, actorIndex) => {
-              const actorKey = `${clip.variationId}:${actor.id}:${actorIndex}`;
+              const actorKey = `${clip.id}:${actor.id}:${actorIndex}`;
               return (
                 <WoodenActor
                   key={actorKey}
@@ -282,7 +298,7 @@ function SceneContent({
                   clipVersion={clipVersion}
                   selected={selected}
                   onReady={handleActorReady}
-                  onClick={() => onClipClick?.(clip.variationId)}
+                  onClick={() => onClipClick?.(clip.id)}
                 />
               );
             })}

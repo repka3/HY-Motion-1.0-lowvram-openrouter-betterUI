@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from hymotion.api.models import JobCreateRequest, JobCreateResponse
+from hymotion.api.models import FavoriteCreateRequest, JobCreateRequest, JobCreateResponse
 from hymotion.api.service import JobNotFound, JobService
 
 
@@ -71,6 +71,46 @@ def get_motion(job_id: str, variation_id: str):
         raise HTTPException(status_code=404, detail="Job or variation not found")
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Motion JSON not found")
+
+
+@app.get("/api/favorites")
+def list_favorites():
+    return service.list_favorites()
+
+
+@app.post("/api/favorites")
+def create_favorite(request: FavoriteCreateRequest):
+    try:
+        return service.create_favorite(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/favorites/{favorite_id}")
+def get_favorite(favorite_id: str):
+    try:
+        return service.get_favorite(favorite_id)
+    except JobNotFound:
+        raise HTTPException(status_code=404, detail="Favorite not found")
+
+
+@app.get("/api/favorites/{favorite_id}/motion")
+def get_favorite_motion(favorite_id: str):
+    try:
+        return service.get_favorite_motion(favorite_id)
+    except JobNotFound:
+        raise HTTPException(status_code=404, detail="Favorite not found")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Favorite motion JSON not found")
+
+
+@app.delete("/api/favorites/{favorite_id}")
+def delete_favorite(favorite_id: str):
+    try:
+        service.delete_favorite(favorite_id)
+        return {"ok": True}
+    except JobNotFound:
+        raise HTTPException(status_code=404, detail="Favorite not found")
 
 
 @app.websocket("/api/jobs/{job_id}/events")
