@@ -1,8 +1,8 @@
-# HYMOTION studio
+# HyMotion studio
 
-![HYMOTION studio interface](screenshots/home1.png)
+![HyMotion studio interface](screenshots/home2.png)
 
-HYMOTION studio is a local creator interface for Tencent HY-Motion 1.0, focused on making the full model usable on consumer GPUs with limited VRAM. The current app pairs a React/Three.js frontend with a FastAPI backend and a low-VRAM generation schedule that runs the full `HY-Motion-1.0/latest.ckpt` path on an RTX 3070 8GB class card without quantizing the motion model or switching to the Lite checkpoint.
+HyMotion studio is a local creator interface for Tencent HY-Motion 1.0, focused on making the full model usable on consumer GPUs with limited VRAM. The current app pairs a React/Three.js frontend with a FastAPI backend and a low-VRAM generation schedule that runs the full `HY-Motion-1.0/latest.ckpt` path on an RTX 3070 8GB class card without quantizing the motion model or switching to the Lite checkpoint.
 
 ## Current App State
 
@@ -306,7 +306,7 @@ After running the command, open your browser and visit `http://localhost:7860`
 If you found this repository helpful, please cite our reports:
 
 ```bibtex
-@article{hymotion2025,
+@article{HyMotion2025,
   title={HY-Motion 1.0: Scaling Flow Matching Models for Text-To-Motion Generation},
   author={Tencent Hunyuan 3D Digital Human Team},
   journal={arXiv preprint arXiv:2512.23464},
