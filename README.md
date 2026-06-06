@@ -10,35 +10,163 @@ HyMotion studio is a local creator interface for Tencent HY-Motion 1.0, focused 
 
 ## Fresh Install
 
-From a fresh clone on Linux:
+This fork is set up for a one-command local install after cloning. The install path is Linux-focused and assumes an NVIDIA GPU. The validated low-VRAM path uses the full `HY-Motion-1.0` checkpoint on an RTX 3070 8GB class GPU.
+
+### System Requirements
+
+Install these before cloning:
+
+- `git` and `git-lfs`
+- `python3` with `venv`
+- `node` and `npm`
+- `curl` and `lsof`
+- A recent NVIDIA driver compatible with the CUDA `12.8` PyTorch wheels in `requirements.txt`
+
+Ubuntu example:
+
+```bash
+sudo apt update
+sudo apt install -y git git-lfs python3 python3-venv python3-pip nodejs npm curl lsof
+git lfs install
+```
+
+If your distro packages an old Node.js, install a newer Node runtime with `nvm` or your package manager. This workspace was tested with Python `3.12`, Node `24`, and npm `11`.
+
+### Clone
+
+```bash
+git clone <your-repo-url>
+cd HY-Motion-1.0-lowvram-openrouter-betterUI
+git lfs pull
+```
+
+`git lfs pull` is important because the repository contains binary template assets, stats, screenshots, and other files tracked by Git LFS. If those files are still text pointer files, model viewing and export will break even if the Python dependencies are installed.
+
+### Install Dependencies And Models
 
 ```bash
 ./install.sh
+```
+
+`./install.sh` runs `./run.sh --install --check`. It creates `venv/`, installs Python dependencies from `requirements.txt`, installs frontend dependencies with `npm ci`, and downloads the default model assets into `ckpts/`.
+
+Default downloaded layout:
+
+```text
+ckpts/
+├── tencent/
+│   └── HY-Motion-1.0/
+├── Qwen3-8B/
+└── clip-vit-large-patch14/
+```
+
+The first install downloads tens of GB:
+
+- HY-Motion full checkpoint: about 4 GB
+- Qwen3-8B text encoder: about 16 GB
+- CLIP ViT-L/14 text encoder: smaller, but still downloaded locally for offline-stable startup
+
+If Hugging Face requires authentication, set a token before installing:
+
+```bash
+export HF_TOKEN=hf_your_token_here
+./install.sh
+```
+
+### Launch
+
+After installation:
+
+```bash
 ./run.sh
 ```
 
-`./install.sh` creates `venv/`, installs Python dependencies from `requirements.txt`, installs frontend dependencies with `npm ci`, and downloads the required model assets into `ckpts/`:
+Open the app at:
 
-- `ckpts/tencent/HY-Motion-1.0`
-- `ckpts/Qwen3-8B`
-- `ckpts/clip-vit-large-patch14`
+```text
+http://127.0.0.1:5173/
+```
 
-The first install downloads tens of GB. If Hugging Face requires authentication, set `HF_TOKEN` before running the installer.
+The backend runs at `http://127.0.0.1:8000/`. Logs are written to `.logs/backend.log` and `.logs/frontend.log`.
 
-Alternative one-command launch:
+Alternative install-and-launch command:
 
 ```bash
 ./run.sh --install
 ```
 
-Useful install options:
+### Useful Install Variants
+
+Install the Lite checkpoint instead of the full checkpoint:
 
 ```bash
 HY_MODEL_VARIANT=HY-Motion-1.0-Lite ./install.sh
-HY_DOWNLOAD_PROMPTER=1 ./install.sh
-./run.sh --install --skip-model-download
+HY_MODEL_VARIANT=HY-Motion-1.0-Lite ./run.sh
+```
+
+Install dependencies but skip model downloads:
+
+```bash
+./run.sh --install --skip-model-download --check
+```
+
+Download or verify only model assets:
+
+```bash
+venv/bin/python tools/download_models.py
+venv/bin/python tools/download_models.py --check-only
 venv/bin/python tools/download_models.py --help
 ```
+
+Optionally download the upstream local prompt rewriter model. The studio normally uses OpenRouter instead, so this is not required:
+
+```bash
+HY_DOWNLOAD_PROMPTER=1 ./install.sh
+```
+
+### OpenRouter Setup
+
+Prompt enhancement and automatic duration estimation use OpenRouter. The app can still generate without it, but those helper buttons need an API key.
+
+Create `openrouter_config.local.json` in the repository root:
+
+```json
+{
+  "apiKey": "sk-or-your-key",
+  "model": "openai/gpt-4.1-mini"
+}
+```
+
+This file is ignored by git.
+
+### Verification
+
+Check the installed environment without starting servers:
+
+```bash
+./run.sh --check
+```
+
+Run the backend tests:
+
+```bash
+venv/bin/python -m unittest tests.test_export_service tests.test_api_service tests.test_motion_json tests.test_openrouter_prompt
+```
+
+Build the frontend:
+
+```bash
+npm --prefix web run build
+```
+
+### Common Issues
+
+- `Missing HY-Motion checkpoint`: run `venv/bin/python tools/download_models.py` or rerun `./install.sh`.
+- `Missing Qwen safetensor shards`: Qwen did not finish downloading; rerun the downloader.
+- `CLIP model is not locally available`: run `venv/bin/python tools/download_models.py --skip-qwen` to fetch just the missing CLIP path.
+- `CUDA is not available`: install/update the NVIDIA driver. CPU fallback is not practical for normal generation.
+- `Port 8000/5173 is already in use`: stop the existing server or set `BACKEND_PORT` / `FRONTEND_PORT`.
+- Browser loads but model/export viewer is broken: run `git lfs pull` and confirm the binary assets are not LFS pointer text files.
 
 ## Current App State
 
