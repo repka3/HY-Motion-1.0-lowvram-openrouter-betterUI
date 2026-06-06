@@ -4,6 +4,8 @@
 
 ![HyMotion export page](screenshots/export.png)
 
+![HyMotion retargeting in Blender](screenshots/retarget.png)
+
 HyMotion studio is a local creator interface for Tencent HY-Motion 1.0, focused on making the full model usable on consumer GPUs with limited VRAM. The current app pairs a React/Three.js frontend with a FastAPI backend and a low-VRAM generation schedule that runs the full `HY-Motion-1.0/latest.ckpt` path on an RTX 3070 8GB class card without quantizing the motion model or switching to the Lite checkpoint.
 
 ## Current App State
@@ -17,12 +19,33 @@ The app currently supports:
 - Browser-based generation controls for prompt, duration, CFG, inference steps, variations, and seeds.
 - A Three.js motion viewer with side-by-side variation comparison, playback controls, selected-clip metadata, and favorites.
 - An export/fix page with animation and rest-pose preview, global ground offset correction, and FBX/GLB downloads with or without skin.
+- A validated Blender Auto-Rig Pro retarget path for skeleton-only GLB exports.
 - OpenRouter-powered prompt enhancement and duration estimation, avoiding the local Text2MotionPrompter LLM download.
+
+## Export And Retargeting
+
+The current reliable Blender path is:
+
+1. Select a generated motion in the studio.
+2. Open the export page.
+3. Use `Rest to ground` if the rest pose needs grounding.
+4. Export `GLB skeleton`.
+5. Import the GLB in Blender.
+6. In Auto-Rig Pro Remap, use the source armature `HYMotionArmature`.
+7. Import the preset at `autorig_presets/hymotion_preset.bmap`.
+8. Retarget to the character rig.
+
+The HYMotion preset maps the exported SMPL-H-style source bones to the working Auto-Rig Pro target controls. `Pelvis` is mapped as the root to `c_root_master.x`; `Spine1` maps to `c_spine_01.x`; `Spine3` maps to `c_spine_02.x`; `Spine2` is intentionally unmapped.
+
+Skeleton-only GLB exports can show a tiny `Mesh_0` carrier object in Blender. That is expected: it lets glTF import as a real skinned armature instead of loose animated transform nodes. Use `HYMotionArmature` as the retarget source and ignore the carrier mesh.
+
+FBX skeleton exports now apply the same rest-height correction to the FBX root default transform, so Blender Rest Position should match the corrected frame-0 height. Skinned GLB/FBX export buttons exist, but the validated production retarget path is currently the skeleton-only GLB workflow above.
 
 ## Missing / Planned
 
 - Add stronger progress feedback and recovery paths around long-running generation jobs.
 - Validate multi-GPU and CPU-only fallback paths.
+- Validate skinned GLB/FBX exports against Blender and Auto-Rig Pro.
 
 ## Precision
 
