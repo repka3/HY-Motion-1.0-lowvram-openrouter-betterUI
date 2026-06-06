@@ -2,6 +2,38 @@
 
 This project requires several model weights to function. By default, `app.py` and `gradio_app.py` support automatic downloading from Hugging Face. However, for offline environments or faster startup, we recommend manual downloading.
 
+## Automatic Download
+
+From the repository root, run:
+
+```bash
+./install.sh
+```
+
+This installs dependencies and downloads the default local model layout:
+
+```text
+ckpts/
+├── tencent/
+│   └── HY-Motion-1.0/
+├── Qwen3-8B/
+└── clip-vit-large-patch14/
+```
+
+You can also download only the model assets after the Python environment exists:
+
+```bash
+venv/bin/python tools/download_models.py
+```
+
+Useful variants:
+
+```bash
+HY_MODEL_VARIANT=HY-Motion-1.0-Lite ./install.sh
+HY_DOWNLOAD_PROMPTER=1 ./install.sh
+venv/bin/python tools/download_models.py --with-prompter
+```
+
 ## 1. Motion Generation Models (T2M Models)
 
 These are the main DiT-based motion generation models. You can choose between the Standard or Lite version.
@@ -26,6 +58,7 @@ The model uses CLIP and Qwen as text encoders. According to hymotion/network/tex
 
 - If USE_HF_MODELS=1 (Default): The code will fetch models directly from Hugging Face using Repo IDs: openai/clip-vit-large-patch14 and Qwen/Qwen3-8B.
 - If USE_HF_MODELS=0: The code expects the weights to be located in the ckpts/ directory.
+- The local studio installer downloads both encoders into `ckpts/` and starts the app with `HY_QWEN_PATH=ckpts/Qwen3-8B` and `HY_CLIP_PATH=ckpts/clip-vit-large-patch14`.
 
 Manual Download Commands:
 ```bash

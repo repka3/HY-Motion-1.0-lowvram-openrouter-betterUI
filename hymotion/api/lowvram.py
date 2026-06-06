@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, List
 
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 os.environ.setdefault("HY_QWEN_PATH", "ckpts/Qwen3-8B")
-os.environ.setdefault("HY_CLIP_PATH", "openai/clip-vit-large-patch14")
+os.environ.setdefault("HY_CLIP_PATH", "ckpts/clip-vit-large-patch14")
 os.environ.setdefault("HY_QWEN_DEVICE_MAP", "auto")
 os.environ.setdefault("HY_QWEN_MAX_GPU_MEMORY", "5GiB")
 os.environ.setdefault("HY_QWEN_MAX_CPU_MEMORY", "48GiB")
@@ -174,7 +174,7 @@ class LowVramMotionGenerator:
     def _configure_env(self) -> None:
         os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         os.environ.setdefault("HY_QWEN_PATH", "ckpts/Qwen3-8B")
-        os.environ.setdefault("HY_CLIP_PATH", "openai/clip-vit-large-patch14")
+        os.environ.setdefault("HY_CLIP_PATH", "ckpts/clip-vit-large-patch14")
         os.environ.setdefault("HY_QWEN_DEVICE_MAP", "auto")
         os.environ.setdefault("HY_QWEN_MAX_GPU_MEMORY", "5GiB")
         os.environ.setdefault("HY_QWEN_MAX_CPU_MEMORY", "48GiB")

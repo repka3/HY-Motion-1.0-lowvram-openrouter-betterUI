@@ -11,9 +11,17 @@ FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 LOG_DIR="${LOG_DIR:-.logs}"
 
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
-export HY_MODEL_PATH="${HY_MODEL_PATH:-ckpts/tencent/HY-Motion-1.0}"
+if [[ -z "${HY_MODEL_VARIANT+x}" ]]; then
+  if [[ -n "${HY_MODEL_PATH:-}" ]]; then
+    HY_MODEL_VARIANT="$(basename "$HY_MODEL_PATH")"
+  else
+    HY_MODEL_VARIANT="HY-Motion-1.0"
+  fi
+fi
+export HY_MODEL_VARIANT
+export HY_MODEL_PATH="${HY_MODEL_PATH:-ckpts/tencent/$HY_MODEL_VARIANT}"
 export HY_QWEN_PATH="${HY_QWEN_PATH:-ckpts/Qwen3-8B}"
-export HY_CLIP_PATH="${HY_CLIP_PATH:-openai/clip-vit-large-patch14}"
+export HY_CLIP_PATH="${HY_CLIP_PATH:-ckpts/clip-vit-large-patch14}"
 export HY_QWEN_DEVICE_MAP="${HY_QWEN_DEVICE_MAP:-auto}"
 export HY_QWEN_MAX_GPU_MEMORY="${HY_QWEN_MAX_GPU_MEMORY:-5GiB}"
 export HY_QWEN_MAX_CPU_MEMORY="${HY_QWEN_MAX_CPU_MEMORY:-48GiB}"
@@ -22,6 +30,7 @@ export HY_TEXT_LOCAL_FILES_ONLY="${HY_TEXT_LOCAL_FILES_ONLY:-1}"
 INSTALL=0
 CHECK_ONLY=0
 NO_CLEAN=0
+SKIP_MODEL_DOWNLOAD=0
 BACKEND_PID=""
 FRONTEND_PID=""
 
@@ -32,6 +41,8 @@ Usage: ./run.sh [options]
 Options:
   --check       Validate environment only; do not start servers.
   --install     Install missing Python/Node dependencies when possible.
+  --skip-model-download
+                With --install, install packages but do not download checkpoints.
   --no-clean    Do not stop existing project-local backend/frontend processes.
   -h, --help    Show this help.
 
@@ -41,6 +52,8 @@ Environment:
   HY_MODEL_PATH=$HY_MODEL_PATH
   HY_QWEN_PATH=$HY_QWEN_PATH
   HY_CLIP_PATH=$HY_CLIP_PATH
+  HY_MODEL_VARIANT=$HY_MODEL_VARIANT
+  HY_DOWNLOAD_PROMPTER=${HY_DOWNLOAD_PROMPTER:-0}
 EOF
 }
 
@@ -77,6 +90,9 @@ parse_args() {
         ;;
       --install)
         INSTALL=1
+        ;;
+      --skip-model-download)
+        SKIP_MODEL_DOWNLOAD=1
         ;;
       --no-clean)
         NO_CLEAN=1
@@ -181,6 +197,39 @@ check_node_deps() {
   fi
 
   [[ -x "web/node_modules/.bin/vite" ]] || die "Missing Vite binary. Run npm --prefix web ci."
+}
+
+download_models_if_requested() {
+  if [[ "$INSTALL" -ne 1 || "$SKIP_MODEL_DOWNLOAD" -eq 1 ]]; then
+    return
+  fi
+
+  local model_variant motion_dir qwen_dir clip_dir
+  model_variant="$HY_MODEL_VARIANT"
+  motion_dir="$(dirname "$HY_MODEL_PATH")"
+  qwen_dir="$HY_QWEN_PATH"
+  clip_dir="$HY_CLIP_PATH"
+
+  local args=(
+    --model-variant "$model_variant"
+    --motion-dir "$motion_dir"
+    --qwen-dir "$qwen_dir"
+  )
+
+  if [[ "$clip_dir" == /* || "$clip_dir" == ./* || "$clip_dir" == ../* || "$clip_dir" == ckpts/* ]]; then
+    args+=(--clip-dir "$clip_dir")
+  else
+    warn "HY_CLIP_PATH looks like a Hugging Face repo id, not a local path: $clip_dir"
+    warn "Skipping local CLIP download; model validation will use the Hugging Face cache."
+    args+=(--skip-clip)
+  fi
+
+  if [[ "${HY_DOWNLOAD_PROMPTER:-0}" == "1" ]]; then
+    args+=(--with-prompter)
+  fi
+
+  log "Downloading/checking model assets..."
+  venv/bin/python tools/download_models.py "${args[@]}"
 }
 
 hf_cache_dir_for_model_id() {
@@ -381,6 +430,7 @@ main() {
   ensure_venv
   check_python_deps
   check_node_deps
+  download_models_if_requested
   check_models
 
   log "Environment checks passed."

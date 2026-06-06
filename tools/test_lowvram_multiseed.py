@@ -41,7 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--output-dir", default="output/lowvram_multiseed")
     parser.add_argument("--qwen-path", default="ckpts/Qwen3-8B")
-    parser.add_argument("--clip-path", default="openai/clip-vit-large-patch14")
+    parser.add_argument("--clip-path", default="ckpts/clip-vit-large-patch14")
     parser.add_argument("--qwen-gpu-memory", default="5GiB")
     parser.add_argument("--qwen-cpu-memory", default="48GiB")
     parser.add_argument("--allow-download", action="store_true")

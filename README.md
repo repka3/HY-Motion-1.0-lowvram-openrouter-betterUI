@@ -8,6 +8,38 @@
 
 HyMotion studio is a local creator interface for Tencent HY-Motion 1.0, focused on making the full model usable on consumer GPUs with limited VRAM. The current app pairs a React/Three.js frontend with a FastAPI backend and a low-VRAM generation schedule that runs the full `HY-Motion-1.0/latest.ckpt` path on an RTX 3070 8GB class card without quantizing the motion model or switching to the Lite checkpoint.
 
+## Fresh Install
+
+From a fresh clone on Linux:
+
+```bash
+./install.sh
+./run.sh
+```
+
+`./install.sh` creates `venv/`, installs Python dependencies from `requirements.txt`, installs frontend dependencies with `npm ci`, and downloads the required model assets into `ckpts/`:
+
+- `ckpts/tencent/HY-Motion-1.0`
+- `ckpts/Qwen3-8B`
+- `ckpts/clip-vit-large-patch14`
+
+The first install downloads tens of GB. If Hugging Face requires authentication, set `HF_TOKEN` before running the installer.
+
+Alternative one-command launch:
+
+```bash
+./run.sh --install
+```
+
+Useful install options:
+
+```bash
+HY_MODEL_VARIANT=HY-Motion-1.0-Lite ./install.sh
+HY_DOWNLOAD_PROMPTER=1 ./install.sh
+./run.sh --install --skip-model-download
+venv/bin/python tools/download_models.py --help
+```
+
 ## Current App State
 
 The app currently supports:
@@ -142,7 +174,7 @@ HY_MODEL_PATH=ckpts/tencent/HY-Motion-1.0 \
 HY_LOWVRAM_TEXT_FIRST=1 \
 HY_LOWVRAM_MAX_SEEDS=1 \
 HY_QWEN_PATH=ckpts/Qwen3-8B \
-HY_CLIP_PATH=openai/clip-vit-large-patch14 \
+HY_CLIP_PATH=ckpts/clip-vit-large-patch14 \
 HY_QWEN_DEVICE_MAP=auto \
 HY_QWEN_MAX_GPU_MEMORY=5GiB \
 HY_QWEN_MAX_CPU_MEMORY=48GiB \
