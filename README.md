@@ -1,6 +1,8 @@
 # HyMotion studio
 
-![HyMotion studio interface](screenshots/home2.png)
+![HyMotion studio interface](screenshots/home1.png)
+
+![HyMotion export page](screenshots/export.png)
 
 HyMotion studio is a local creator interface for Tencent HY-Motion 1.0, focused on making the full model usable on consumer GPUs with limited VRAM. The current app pairs a React/Three.js frontend with a FastAPI backend and a low-VRAM generation schedule that runs the full `HY-Motion-1.0/latest.ckpt` path on an RTX 3070 8GB class card without quantizing the motion model or switching to the Lite checkpoint.
 
@@ -14,12 +16,11 @@ The app currently supports:
 - One or more seeded variations generated sequentially from cached hidden states.
 - Browser-based generation controls for prompt, duration, CFG, inference steps, variations, and seeds.
 - A Three.js motion viewer with side-by-side variation comparison, playback controls, selected-clip metadata, and favorites.
+- An export/fix page with animation and rest-pose preview, global ground offset correction, and FBX/GLB downloads with or without skin.
 - OpenRouter-powered prompt enhancement and duration estimation, avoiding the local Text2MotionPrompter LLM download.
 
 ## Missing / Planned
 
-- Export generated motion to interchange formats such as `glb` and `fbx`.
-- Improve/fix animation positioning, grounding, and placement consistency.
 - Add stronger progress feedback and recovery paths around long-running generation jobs.
 - Validate multi-GPU and CPU-only fallback paths.
 

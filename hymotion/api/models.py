@@ -106,6 +106,14 @@ class PromptEnhanceResponse(BaseModel):
     model: str
 
 
+class ExportFbxRequest(BaseModel):
+    motion: Any
+    includeSkin: bool = True
+    yOffset: float = Field(0.0, ge=-10.0, le=10.0)
+    fps: int = Field(30, ge=1, le=120)
+    filenameBase: str = Field("hy_motion_export", min_length=1, max_length=160)
+
+
 def model_to_dict(model: BaseModel) -> Dict[str, Any]:
     if hasattr(model, "model_dump"):
         return model.model_dump()

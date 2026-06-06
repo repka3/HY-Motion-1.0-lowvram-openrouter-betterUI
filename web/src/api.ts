@@ -1,6 +1,7 @@
 import type {
   FavoriteCreateRequest,
   FavoriteSummary,
+  ExportFbxRequest,
   JobDetail,
   JobRequest,
   JobSummary,
@@ -29,6 +30,19 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(text || response.statusText);
   }
   return response.json() as Promise<T>;
+}
+
+async function responseError(response: Response): Promise<Error> {
+  const text = await response.text();
+  let detail: unknown;
+  try {
+    const parsed = JSON.parse(text) as { detail?: unknown };
+    detail = parsed.detail;
+  } catch {
+    // Fall through to the raw response body.
+  }
+  if (typeof detail === "string") return new Error(detail);
+  return new Error(text || response.statusText);
 }
 
 export function listJobs(): Promise<JobSummary[]> {
@@ -90,6 +104,16 @@ export function enhancePrompt(request: PromptEnhanceRequest): Promise<PromptEnha
     method: "POST",
     body: JSON.stringify(request)
   });
+}
+
+export async function exportFbx(request: ExportFbxRequest): Promise<Blob> {
+  const response = await fetch("/api/export/fbx", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request)
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
 }
 
 export function createJobSocket(jobId: string): WebSocket {

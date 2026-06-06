@@ -15,6 +15,9 @@ interface MotionViewerProps {
   isPlaying: boolean;
   speed: number;
   resetToken: number;
+  poseMode?: "animation" | "rest";
+  yOffset?: number;
+  showFavoriteButtons?: boolean;
   onFrameChange: (frame: number) => void;
   onReadyChange?: (ready: boolean) => void;
   onClipClick?: (clipId: string) => void;
@@ -52,6 +55,7 @@ function WoodenActor({
   actorKey,
   actor,
   xOffset,
+  yOffset,
   clipVersion,
   selected,
   onReady,
@@ -60,6 +64,7 @@ function WoodenActor({
   actorKey: string;
   actor: MotionActorFrame;
   xOffset: number;
+  yOffset: number;
   clipVersion: number;
   selected: boolean;
   onReady: (actorKey: string) => void;
@@ -94,7 +99,7 @@ function WoodenActor({
   useEffect(() => {
     if (!model) return;
     const mesh = model.mesh;
-    mesh.position.set((actor.Th[0]?.[0] ?? 0) + xOffset, actor.Th[0]?.[1] ?? 0, actor.Th[0]?.[2] ?? 0);
+    mesh.position.set((actor.Th[0]?.[0] ?? 0) + xOffset, (actor.Th[0]?.[1] ?? 0) + yOffset, actor.Th[0]?.[2] ?? 0);
     mesh.scale.setScalar(selected ? 1.035 : 1);
     applyAxisAngle(model.bones[0], actor.Rh[0] ?? [0, 0, 0]);
 
@@ -108,7 +113,7 @@ function WoodenActor({
         model.bones[index].quaternion.identity();
       }
     }
-  }, [actor, model, selected, xOffset]);
+  }, [actor, model, selected, xOffset, yOffset]);
 
   useEffect(() => {
     return () => {
@@ -202,6 +207,9 @@ function SceneContent({
   isPlaying,
   speed,
   resetToken,
+  poseMode = "animation",
+  yOffset = 0,
+  showFavoriteButtons = true,
   onFrameChange,
   onReadyChange,
   onClipClick,
@@ -255,7 +263,7 @@ function SceneContent({
       />
       {clips.map((clip, clipIndex) => {
         const clipOffset = clipOffsets[clipIndex] ?? 0;
-        const frameIndex = timelineFrameForClip(clip, currentFrame, totalFrames);
+        const frameIndex = poseMode === "rest" ? 0 : timelineFrameForClip(clip, currentFrame, totalFrames);
         const frame = clip.frames[frameIndex] ?? [];
         const actorOffsets = computeOffsets(frame.length, 0.72);
         const selected = selectedClipId === clip.id;
@@ -275,26 +283,37 @@ function SceneContent({
                   <span>V{clip.variationIndex + 1}</span>
                   <b>{clip.seed}</b>
                 </button>
-                <button
-                  className={`viewer-star ${favorited ? "active" : ""}`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onFavoriteClick?.(clip.id);
-                  }}
-                  aria-label={favorited ? "Remove favorite" : "Favorite generation"}
-                >
-                  <Star size={14} fill={favorited ? "currentColor" : "none"} />
-                </button>
+                {showFavoriteButtons && (
+                  <button
+                    className={`viewer-star ${favorited ? "active" : ""}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onFavoriteClick?.(clip.id);
+                    }}
+                    aria-label={favorited ? "Remove favorite" : "Favorite generation"}
+                  >
+                    <Star size={14} fill={favorited ? "currentColor" : "none"} />
+                  </button>
+                )}
               </div>
             </Html>
             {frame.map((actor, actorIndex) => {
               const actorKey = `${clip.id}:${actor.id}:${actorIndex}`;
+              const renderedActor =
+                poseMode === "rest"
+                  ? {
+                      ...actor,
+                      Rh: [[0, 0, 0]],
+                      poses: [new Array(actor.poses[0]?.length ?? 156).fill(0)]
+                    }
+                  : actor;
               return (
                 <WoodenActor
                   key={actorKey}
                   actorKey={actorKey}
-                  actor={actor}
+                  actor={renderedActor}
                   xOffset={clipOffset + (actorOffsets[actorIndex] ?? 0)}
+                  yOffset={yOffset}
                   clipVersion={clipVersion}
                   selected={selected}
                   onReady={handleActorReady}
@@ -322,7 +341,7 @@ export default function MotionViewer(props: MotionViewerProps) {
     <Canvas
       shadows
       camera={{ fov: 50, near: 0.1, far: 80, position: [0, 2.4, 5.2] }}
-      gl={{ antialias: true, logarithmicDepthBuffer: true }}
+      gl={{ antialias: true, logarithmicDepthBuffer: true, preserveDrawingBuffer: true }}
       onCreated={({ gl }) => {
         gl.toneMapping = THREE.ACESFilmicToneMapping;
         gl.toneMappingExposure = 1;

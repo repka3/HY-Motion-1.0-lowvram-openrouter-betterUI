@@ -1,6 +1,7 @@
 import {
   Copy,
   Dice5,
+  FileDown,
   Info,
   KeyRound,
   Pause,
@@ -15,6 +16,7 @@ import {
 } from "lucide-react";
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 
+import ExportPage from "./ExportPage";
 import { useStudioStore } from "./store";
 import type { ComparisonClip, FavoriteSummary } from "./types";
 import MotionViewer from "./viewer/MotionViewer";
@@ -485,7 +487,7 @@ function ViewerWorkspace() {
   );
 }
 
-function InfoPanel({ clip }: { clip: ComparisonClip | undefined }) {
+function InfoPanel({ clip, onExport }: { clip: ComparisonClip | undefined; onExport: () => void }) {
   const selectedJob = useStudioStore((state) => state.selectedJob);
   const cancelSelectedJob = useStudioStore((state) => state.cancelSelectedJob);
   const toggleFavorite = useStudioStore((state) => state.toggleFavorite);
@@ -533,6 +535,10 @@ function InfoPanel({ clip }: { clip: ComparisonClip | undefined }) {
       >
         <Copy size={15} />
         {copiedClipId === clip.id ? "Copied to controls" : "Copy to controls"}
+      </button>
+      <button className="primary-button" type="button" onClick={onExport}>
+        <FileDown size={15} />
+        Export
       </button>
       <div className="modal-section inline-section">
         <span className="section-label">Prompt</span>
@@ -599,7 +605,7 @@ function StarredPanel() {
   );
 }
 
-function RightPanel() {
+function RightPanel({ onExport }: { onExport: () => void }) {
   const selectedClipId = useStudioStore((state) => state.selectedClipId);
   const comparisonClips = useStudioStore((state) => state.comparisonClips);
   const rightTab = useStudioStore((state) => state.rightTab);
@@ -619,7 +625,7 @@ function RightPanel() {
         </button>
       </div>
       {error && <div className="error-line">{error}</div>}
-      {rightTab === "info" ? <InfoPanel clip={selectedClip} /> : <StarredPanel />}
+      {rightTab === "info" ? <InfoPanel clip={selectedClip} onExport={onExport} /> : <StarredPanel />}
     </aside>
   );
 }
@@ -627,6 +633,9 @@ function RightPanel() {
 export default function App() {
   const fetchFavorites = useStudioStore((state) => state.fetchFavorites);
   const loadFixture = useStudioStore((state) => state.loadFixture);
+  const [view, setView] = useState<"studio" | "export">(() =>
+    window.location.pathname === "/export" ? "export" : "studio"
+  );
 
   useEffect(() => {
     const fixture = new URLSearchParams(window.location.search).get("fixture");
@@ -636,11 +645,33 @@ export default function App() {
     }
   }, [fetchFavorites, loadFixture]);
 
+  useEffect(() => {
+    const handlePopState = () => {
+      setView(window.location.pathname === "/export" ? "export" : "studio");
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  const openExport = () => {
+    window.history.pushState(null, "", "/export");
+    setView("export");
+  };
+
+  const closeExport = () => {
+    window.history.pushState(null, "", "/");
+    setView("studio");
+  };
+
+  if (view === "export") {
+    return <ExportPage onBack={closeExport} />;
+  }
+
   return (
     <div className="app-shell">
       <ControlsPanel />
       <ViewerWorkspace />
-      <RightPanel />
+      <RightPanel onExport={openExport} />
     </div>
   );
 }

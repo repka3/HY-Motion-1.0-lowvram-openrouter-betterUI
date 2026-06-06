@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import subprocess
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+from hymotion.api.export_service import ExportError, export_fbx_bytes
 from hymotion.api.models import (
+    ExportFbxRequest,
     FavoriteCreateRequest,
     JobCreateRequest,
     JobCreateResponse,
@@ -77,6 +80,30 @@ def enhance_prompt(request: PromptEnhanceRequest):
         raise HTTPException(status_code=502, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"OpenRouter request failed: {exc}")
+
+
+@app.post("/api/export/fbx")
+def export_fbx(request: ExportFbxRequest):
+    try:
+        result = export_fbx_bytes(
+            motion=request.motion,
+            include_skin=request.includeSkin,
+            y_offset=request.yOffset,
+            fps=request.fps,
+            filename_base=request.filenameBase,
+        )
+    except ExportError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="FBX export timed out")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"FBX export failed: {exc}")
+
+    return Response(
+        content=result.content,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{result.filename}"'},
+    )
 
 
 @app.post("/api/jobs", response_model=JobCreateResponse)

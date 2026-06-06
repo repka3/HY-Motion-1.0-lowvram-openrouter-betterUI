@@ -147,6 +147,22 @@ export interface MotionActorFrame {
 export type MotionFrame = MotionActorFrame[];
 export type MotionFrames = MotionFrame[];
 
+export type ExportFormat = "fbx" | "glb";
+export type ExportSkinMode = "with_skin" | "without_skin";
+
+export interface ExportFixSettings {
+  yOffset: number;
+  fps: number;
+}
+
+export interface ExportFbxRequest {
+  motion: MotionFrames;
+  includeSkin: boolean;
+  yOffset: number;
+  fps: number;
+  filenameBase: string;
+}
+
 export interface ComparisonClip {
   id: string;
   source: "job" | "favorite" | "fixture";
