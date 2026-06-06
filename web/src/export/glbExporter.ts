@@ -7,6 +7,7 @@ import { actorForFrame, rootTranslation } from "./motionFix";
 
 const FPS_DEFAULT = 30;
 const IDENTITY_QUATERNION = new THREE.Quaternion();
+const EXPORT_ARMATURE_NAME = "HYMotionArmature";
 
 interface GlbExportOptions {
   includeSkin: boolean;
@@ -17,28 +18,37 @@ interface GlbExportOptions {
 export async function exportClipToGlb(clip: ComparisonClip, options: GlbExportOptions): Promise<Blob> {
   const fps = options.fps ?? FPS_DEFAULT;
   const model = await loadWoodenModel();
+  let carrierMesh: THREE.SkinnedMesh | null = null;
   try {
     const root = new THREE.Group();
     root.name = "HYMotionExport";
+    const rootRestPosition = model.bones[0].position.clone();
+    const exportMesh = options.includeSkin ? model.mesh : createSkeletonCarrierMesh(model);
+    exportMesh.name = EXPORT_ARMATURE_NAME;
+    applyRestPose(model, actorForFrame(clip.frames[0]), options.yOffset, rootRestPosition);
+    exportMesh.updateMatrixWorld(true);
+    exportMesh.skeleton.calculateInverses();
+
     const animationClip = buildAnimationClip(clip, model, {
-      includeSkin: options.includeSkin,
+      skinnedMeshName: exportMesh.name,
       yOffset: options.yOffset,
-      fps
+      fps,
+      rootRestPosition
     });
 
-    if (options.includeSkin) {
-      model.mesh.name = "HYMotionSkin";
-      applyActorPose(model, actorForFrame(clip.frames[0]), options.yOffset, true);
-      root.add(model.mesh);
-    } else {
-      model.bones[0].name = model.bones[0].name || "Pelvis";
-      applyActorPose(model, actorForFrame(clip.frames[0]), options.yOffset, false);
-      root.add(model.bones[0]);
+    if (!options.includeSkin) {
+      carrierMesh = exportMesh;
     }
+    root.add(exportMesh);
 
     const buffer = await parseGlb(root, [animationClip]);
     return new Blob([buffer], { type: "model/gltf-binary" });
   } finally {
+    if (carrierMesh) {
+      carrierMesh.geometry.dispose();
+      const materials = Array.isArray(carrierMesh.material) ? carrierMesh.material : [carrierMesh.material];
+      materials.forEach((material) => material.dispose());
+    }
     disposeWoodenModel(model);
   }
 }
@@ -47,13 +57,15 @@ function buildAnimationClip(
   clip: ComparisonClip,
   model: WoodenModel,
   {
-    includeSkin,
+    skinnedMeshName,
     yOffset,
-    fps
+    fps,
+    rootRestPosition
   }: {
-    includeSkin: boolean;
+    skinnedMeshName: string;
     yOffset: number;
     fps: number;
+    rootRestPosition: THREE.Vector3;
   }
 ): THREE.AnimationClip {
   const times = clip.frames.map((_, index) => index / fps);
@@ -64,7 +76,7 @@ function buildAnimationClip(
   for (const frame of clip.frames) {
     const actor = actorForFrame(frame);
     const [x, y, z] = rootTranslation(actor);
-    translationValues.push(x, y + yOffset, z);
+    translationValues.push(rootRestPosition.x + x, rootRestPosition.y + y + yOffset, rootRestPosition.z + z);
 
     model.bones.forEach((_, boneIndex) => {
       const quaternion = quaternionForBone(actor, boneIndex);
@@ -72,23 +84,51 @@ function buildAnimationClip(
     });
   }
 
-  const rootPositionTrack = includeSkin ? "HYMotionSkin.position" : `${model.bones[0].name}.position`;
+  const rootPositionTrack = boneTrackName(skinnedMeshName, model.bones[0], "position");
   tracks.push(new THREE.VectorKeyframeTrack(rootPositionTrack, times, translationValues));
 
   model.bones.forEach((bone, boneIndex) => {
-    tracks.push(new THREE.QuaternionKeyframeTrack(`${bone.name}.quaternion`, times, boneQuaternionValues[boneIndex]));
+    tracks.push(new THREE.QuaternionKeyframeTrack(boneTrackName(skinnedMeshName, bone, "quaternion"), times, boneQuaternionValues[boneIndex]));
   });
 
   return new THREE.AnimationClip("HYMotion_Animation", -1, tracks);
 }
 
-function applyActorPose(model: WoodenModel, actor: MotionActorFrame | null, yOffset: number, skinRootOnMesh: boolean): void {
+function applyRestPose(model: WoodenModel, actor: MotionActorFrame | null, yOffset: number, rootRestPosition: THREE.Vector3): void {
   const [x, y, z] = rootTranslation(actor);
-  const rootObject = skinRootOnMesh ? model.mesh : model.bones[0];
-  rootObject.position.set(x, y + yOffset, z);
-  model.bones.forEach((bone, index) => {
-    bone.quaternion.copy(quaternionForBone(actor, index));
+  model.mesh.position.set(0, 0, 0);
+  model.bones[0].position.set(rootRestPosition.x + x, rootRestPosition.y + y + yOffset, rootRestPosition.z + z);
+  model.bones.forEach((bone) => {
+    bone.quaternion.identity();
   });
+}
+
+function createSkeletonCarrierMesh(model: WoodenModel): THREE.SkinnedMesh {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new THREE.BufferAttribute(new Float32Array([0, 0, 0, 0.001, 0, 0, 0, 0.001, 0]), 3)
+  );
+  geometry.setIndex([0, 1, 2]);
+  geometry.setAttribute("skinIndex", new THREE.Uint16BufferAttribute([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 4));
+  geometry.setAttribute("skinWeight", new THREE.Float32BufferAttribute([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], 4));
+  geometry.computeVertexNormals();
+
+  const material = new THREE.MeshBasicMaterial({
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    color: 0xffffff
+  });
+  const mesh = new THREE.SkinnedMesh(geometry, material);
+  mesh.frustumCulled = false;
+  mesh.add(model.bones[0]);
+  mesh.bind(model.mesh.skeleton, model.mesh.bindMatrix.clone());
+  return mesh;
+}
+
+function boneTrackName(skinnedMeshName: string, bone: THREE.Bone, property: "position" | "quaternion"): string {
+  return `${skinnedMeshName}.bones[${bone.name}].${property}`;
 }
 
 function quaternionForBone(actor: MotionActorFrame | null, boneIndex: number): THREE.Quaternion {

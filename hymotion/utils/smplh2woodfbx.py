@@ -181,6 +181,17 @@ def _animateTranslationKeyFrames(animLayer, node, translations, frameDuration):
     _animateSingleChannel(animLayer, node.LclTranslation, "Z", translations, frameDuration)
 
 
+def _node_translation_to_array(node):
+    translation = node.LclTranslation.Get()
+    return np.array([translation[0], translation[1], translation[2]], dtype=np.float64)
+
+
+def _set_node_translation(node, translation):
+    node.LclTranslation.Set(
+        fbx.FbxDouble3(float(translation[0]), float(translation[1]), float(translation[2]))
+    )
+
+
 def _clearExistingAnimations(fbxScene):
     """Remove all existing animation stacks from the scene"""
     anim_stack_count = fbxScene.GetSrcObjectCount(fbx.FbxCriteria.ObjectType(fbx.FbxAnimStack.ClassId))
@@ -221,8 +232,11 @@ def _applyAnimationToSkeleton(fbxScene, nodes_map, rot_matrices, translations, f
     root_fbx_name = smplh_to_fbx_mapping.get("Pelvis")
     if root_fbx_name and root_fbx_name in nodes_map:
         root_node_temp = nodes_map[root_fbx_name]
-        initial_trans = root_node_temp.LclTranslation.Get()
-        root_initial_translation = np.array([initial_trans[0], initial_trans[1], initial_trans[2]])
+        root_initial_translation = _node_translation_to_array(root_node_temp)
+        if len(translations) > 0:
+            root_rest_translation = root_initial_translation + translations[0]
+            _set_node_translation(root_node_temp, root_rest_translation)
+            print(f"Root rest LclTranslation set to first corrected frame: {root_rest_translation}")
         print(f"Root initial LclTranslation from template: {root_initial_translation}")
 
     # Animate each joint
@@ -285,8 +299,11 @@ def _applyAnimationToSkeleton(fbxScene, nodes_map, rot_matrices, translations, f
             if candidate in nodes_map:
                 root_node = nodes_map[candidate]
                 # Get initial translation for fallback node
-                initial_trans = root_node.LclTranslation.Get()
-                fallback_initial = np.array([initial_trans[0], initial_trans[1], initial_trans[2]])
+                fallback_initial = _node_translation_to_array(root_node)
+                if len(translations) > 0:
+                    fallback_rest = fallback_initial + translations[0]
+                    _set_node_translation(root_node, fallback_rest)
+                    print(f"Fallback root rest LclTranslation set to first corrected frame: {fallback_rest}")
                 final_translations = translations + fallback_initial
                 print(
                     f"Found root node by fallback: '{candidate}', initial_offset={fallback_initial}, applying translation..."
